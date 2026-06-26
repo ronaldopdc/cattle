@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# Configuration
+REMOTE_HOST="seu_servidor.com"
+REMOTE_PORT="22"
+REMOTE_USER="seu_usuario"
+REMOTE_DB_HOST="localhost"
+REMOTE_DB_NAME="cattle_db"
+REMOTE_DIR="/var/www/html/cattle"
+LOCAL_SRC="./src"
+DB_DUMP_FILE="cattle_db_dump.sql"
+
+echo "--- Starting Deployment of Cattle Invest ---"
+
+# 1. Local Database Dump
+echo "-> Dumping local database..."
+# Assuming local MariaDB/MySQL is running in Docker as per previous context
+# We use 'db' as the container name and 'cattle_db' as the database
+docker exec cattle_system-db-1 mysqldump -u seu_usuario -psua_senha cattle_db > $DB_DUMP_FILE
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to dump local database."
+    exit 1
+fi
+
+# 2. Prepare Source Code
+echo "-> Preparing source code..."
+TEMP_DEPLOY_DIR="./temp_deploy"
+rm -rf $TEMP_DEPLOY_DIR
+cp -r $LOCAL_SRC $TEMP_DEPLOY_DIR
+
+# 3. Update config.php for Remote Environment
+echo "-> Updating config.php for remote environment..."
+sed -i "s/\$host = 'db';/\$host = '$REMOTE_DB_HOST';/g" $TEMP_DEPLOY_DIR/config.php
+
+# 4. Transfer Files to Remote Server
+echo "-> Transferring files to $REMOTE_HOST:$REMOTE_PORT..."
+# Create remote directory first
+ssh -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST "sudo mkdir -p $REMOTE_DIR && sudo chown $REMOTE_USER:$REMOTE_USER $REMOTE_DIR"
+
+# Transfer code and DB dump
+scp -P $REMOTE_PORT -r $TEMP_DEPLOY_DIR/* $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/
+scp -P $REMOTE_PORT $DB_DUMP_FILE $REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/
+
+# 5. Remote Database Setup and Import
+echo "-> Setting up remote database..."
+ssh -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST << EOF
+    # Create DB if not exists (using mariadb-client)
+    mysql -h $REMOTE_DB_HOST -u seu_usuario_banco -psua_senha_banco -e "CREATE DATABASE IF NOT EXISTS $REMOTE_DB_NAME;"
+    
+    # Import Data
+    echo "-> Importing data into remote database..."
+    mysql -h $REMOTE_DB_HOST -u seu_usuario_banco -psua_senha_banco $REMOTE_DB_NAME < $REMOTE_DIR/$DB_DUMP_FILE
+    
+    # Cleanup dump file on remote
+    rm $REMOTE_DIR/$DB_DUMP_FILE
+    
+    # Set proper permissions for web server
+    sudo chown -R www-data:www-data $REMOTE_DIR
+    sudo chmod -R 755 $REMOTE_DIR
+EOF
+
+# 6. Local Cleanup
+echo "-> Cleaning up local temporary files..."
+rm -rf $TEMP_DEPLOY_DIR
+rm $DB_DUMP_FILE
+
+echo "--- Deployment Complete! ---"
+echo "Access the system at: http://$REMOTE_HOST/cattle"

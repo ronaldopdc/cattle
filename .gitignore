@@ -1,0 +1,30 @@
+# IDEs and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backups and temp files
+*.bkp
+*.backup
+temp_sync/
+temp_deploy/
+src/temp.*
+
+# Secrets and local configurations
+src/config.php
+sync_files.sh
+deploy.sh
+
+# User data files / Excel reports / temporary files (add templates manually if needed)
+*.xls
+*.xlsx
+*.doc
+*.docx
+*.pdf
+photo.jpg
+
+# DB dumps (keeping schema.sql for repo setup)
+*.sql
+!schema.sql

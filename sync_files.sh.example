@@ -1,0 +1,89 @@
+#!/bin/bash
+
+# Configuration (Consistent with deploy.sh)
+REMOTE_HOST="seu_servidor.com"
+REMOTE_PORT="22"
+REMOTE_USER="seu_usuario"
+REMOTE_DIR="/var/www/html/cattle"
+LOCAL_SRC="./src"
+
+# Coloque a sua senha correta entre as aspas simples abaixo:
+REMOTE_PASS='sua_senha'
+
+# Verifica se o sshpass está instalado
+if ! command -v sshpass &> /dev/null; then
+    echo "Erro: sshpass não está instalado. Por favor, instale-o para continuar."
+    exit 1
+fi
+
+# Exporta a senha para o sshpass consumir via variável de ambiente
+# O comando tr remove possíveis quebras de linha do Windows (CRLF) que invalidam a senha no Linux
+REMOTE_PASS=$(echo "$REMOTE_PASS" | tr -d '\r')
+export SSHPASS="$REMOTE_PASS"
+
+echo "--- Starting Sync of Cattle Invest Files ---"
+
+# 1. Prepare Source Code
+echo "-> Preparing source code..."
+TEMP_SYNC_DIR="./temp_sync"
+rm -rf $TEMP_SYNC_DIR
+mkdir -p $TEMP_SYNC_DIR
+
+# Copy src contents to temp sync folder
+cp -r $LOCAL_SRC/* $TEMP_SYNC_DIR/
+
+# 2. Remove config.php to avoid overwriting production config
+echo "-> Removing config.php from sync package..."
+rm -f $TEMP_SYNC_DIR/config.php
+
+# 2b. Defense-in-depth: strip any development/maintenance script that might
+# still live under ./src. These scripts now live OUTSIDE src (in ./scripts) and
+# are not synced, but if one is ever added back into src by mistake it must NOT
+# reach production: they have NO authentication and would be publicly reachable
+# by URL (data exposure / destructive DB writes).
+echo "-> Removing development/maintenance scripts from sync package (safety)..."
+rm -f $TEMP_SYNC_DIR/debug_*.php
+rm -f $TEMP_SYNC_DIR/NEW_CALCULATION_LOGIC.php
+rm -f $TEMP_SYNC_DIR/fix_*.php
+rm -f $TEMP_SYNC_DIR/update_*.php
+rm -f $TEMP_SYNC_DIR/add_*.php
+rm -f $TEMP_SYNC_DIR/create_*_table.php
+
+# 3. Transferindo os arquivos para pasta temporária no servidor
+echo "-> Transferindo arquivos via SCP..."
+REMOTE_TEMP="/tmp/cattle_sync_temp"
+
+# Limpa e cria pasta temporária no servidor
+sshpass -e ssh -T -o StrictHostKeyChecking=no -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST << EOF
+    rm -rf $REMOTE_TEMP
+    mkdir -p $REMOTE_TEMP
+EOF
+
+# Envia os arquivos para a pasta temporária (ronaldo tem permissão total aqui)
+sshpass -e scp -o StrictHostKeyChecking=no -P $REMOTE_PORT -r $TEMP_SYNC_DIR/* $REMOTE_USER@$REMOTE_HOST:$REMOTE_TEMP/
+
+# 4. Movendo para o diretório final com permissões de sudo
+echo "-> Publicando arquivos em $REMOTE_DIR e ajustando permissões..."
+sshpass -e ssh -T -o StrictHostKeyChecking=no -p $REMOTE_PORT $REMOTE_USER@$REMOTE_HOST << EOF
+    echo "$REMOTE_PASS" | sudo -S mkdir -p $REMOTE_DIR
+    echo "$REMOTE_PASS" | sudo -S cp -rf $REMOTE_TEMP/* $REMOTE_DIR/
+    # Remove from PRODUCTION any development/maintenance scripts that may have
+    # been published by earlier deploys. These have no authentication and are a
+    # security risk (data exposure / destructive DB writes via public URL).
+    echo "$REMOTE_PASS" | sudo -S rm -f $REMOTE_DIR/debug_*.php
+    echo "$REMOTE_PASS" | sudo -S rm -f $REMOTE_DIR/NEW_CALCULATION_LOGIC.php
+    echo "$REMOTE_PASS" | sudo -S rm -f $REMOTE_DIR/fix_*.php
+    echo "$REMOTE_PASS" | sudo -S rm -f $REMOTE_DIR/update_*.php
+    echo "$REMOTE_PASS" | sudo -S rm -f $REMOTE_DIR/add_*.php
+    echo "$REMOTE_PASS" | sudo -S rm -f $REMOTE_DIR/create_*_table.php
+    echo "$REMOTE_PASS" | sudo -S chown -R www-data:www-data $REMOTE_DIR
+    echo "$REMOTE_PASS" | sudo -S chmod -R 755 $REMOTE_DIR
+    rm -rf $REMOTE_TEMP
+EOF
+
+# 5. Local Cleanup
+echo "-> Limpando arquivos locais..."
+rm -rf $TEMP_SYNC_DIR
+
+echo "--- Sync Complete! ---"
+echo "Files synced to: $REMOTE_HOST:$REMOTE_DIR"

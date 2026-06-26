@@ -1,0 +1,413 @@
+<!-- Liquidation Modal -->
+<div id="liquidationModal"
+    style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7);">
+    <div
+        style="position: relative; margin: 5% auto; padding: 2rem; width: 600px; max-width: 90%; max-height: 85vh; overflow-y: auto; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
+        <span onclick="closeLiquidationModal()"
+            style="position: absolute; right: 1.5rem; top: 1.5rem; font-size: 2rem; font-weight: bold; cursor: pointer; color: #94a3b8; transition: color 0.3s;">&times;</span>
+
+        <h2 style="margin-top: 0; color: #fbbf24; font-weight: 600;">Liquidar Parceria #<span
+                id="liq-modal-partnership-id"></span></h2>
+
+        <form id="liquidationForm">
+            <div class="form-group">
+                <label style="color: #cbd5e1;">Data da Liquidação</label>
+                <input type="date" id="liq-date" required
+                    style="width: 100%; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #e2e8f0;">
+            </div>
+            <div class="form-group">
+                <label style="color: #cbd5e1;">Lotes da Parceria (Opcional)</label>
+                <div id="liq-lots-container"
+                    style="max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.5rem;">
+                    <!-- Checkboxes populated by JS -->
+                </div>
+                <small style="color: #94a3b8; display: block; margin-top: 0.5rem;">Selecione um ou mais lotes para definir onde a liquidação começa. O valor e a quantidade são sugeridos automaticamente. Se o valor informado ultrapassar os lotes selecionados, o excedente transborda para os demais lotes na ordem de vencimento. Lotes ordenados por vencimento.</small>
+            </div>
+            <div class="form-group">
+                <label style="color: #cbd5e1;">Valor Total a Liquidar (R$)</label>
+                <input type="number" step="0.01" id="liq-amount" required
+                    style="width: 100%; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #e2e8f0;">
+                <small style="color: #94a3b8; display: block; margin-top: 0.5rem;">Informe o valor total com juros
+                    compostos já incluídos. O sistema distribuirá entre os lotes na ordem de vencimento. Caso o valor
+                    seja maior que o(s) lote(s) selecionado(s), o restante será liquidado automaticamente nos próximos
+                    lotes por data de vencimento.</small>
+                <div id="liq-overflow-warning"
+                    style="display: none; margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 6px; color: #fbbf24; font-size: 0.85rem;">
+                    <i class="fas fa-info-circle"></i> <span id="liq-overflow-text"></span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label style="color: #cbd5e1;">Quantidade de Cabeças Abatidas (Opcional)</label>
+                <input type="number" id="liq-quantity" min="1" step="1"
+                    style="width: 100%; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #e2e8f0;"
+                    placeholder="Ex: 5">
+                <div id="liq-lot-quantities-wrapper" style="display: none; margin-top: 0.75rem; padding: 0.75rem; background: rgba(0,0,0,0.18); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;">
+                    <div style="color: #cbd5e1; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem;">
+                        Quantidade por lote
+                    </div>
+                    <div id="liq-lot-quantities-container"></div>
+                    <small style="color: #94a3b8; display: block; margin-top: 0.5rem;">A soma das quantidades por lote atualiza automaticamente o campo total acima.</small>
+                </div>
+            </div>
+
+            <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
+                <input type="checkbox" id="liq-is-settlement" style="width: 18px; height: 18px; cursor: pointer;">
+                <label for="liq-is-settlement" style="color: #cbd5e1; cursor: pointer; margin: 0;">Quitação do Contrato (Zerar saldo)</label>
+            </div>
+
+            <button type="submit" class="btn btn-primary"
+                style="width: 100%; background-color: #fbbf24; color: #1e293b; font-weight: 600;">
+                <i class="fas fa-check"></i> Confirmar Liquidação
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+    let currentLiqPartnershipId = null;
+    let currentLiqLots = [];
+
+    function openLiquidationModal(partnershipId) {
+        currentLiqPartnershipId = partnershipId;
+        document.getElementById('liq-modal-partnership-id').innerText = partnershipId;
+        document.getElementById('liquidationModal').style.display = 'block';
+        populateLiquidationLots(partnershipId);
+
+        // Set default date to today in Brasilia timezone
+        const dateStr = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Sao_Paulo',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(new Date());
+        document.getElementById('liq-date').value = dateStr;
+        updateLiquidationLotSuggestion();
+    }
+
+    function closeLiquidationModal() {
+        document.getElementById('liquidationModal').style.display = 'none';
+        document.getElementById('liquidationForm').reset();
+        document.getElementById('liq-is-settlement').checked = false;
+        document.getElementById('liq-lots-container').innerHTML = '';
+        document.getElementById('liq-quantity').value = '';
+        document.getElementById('liq-lot-quantities-container').innerHTML = '';
+        document.getElementById('liq-lot-quantities-wrapper').style.display = 'none';
+        const ow = document.getElementById('liq-overflow-warning');
+        if (ow) ow.style.display = 'none';
+        currentLiqLots = [];
+    }
+
+    function formatLiquidationCurrency(value) {
+        return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    function populateLiquidationLots(partnershipId) {
+        const container = document.getElementById('liq-lots-container');
+        container.innerHTML = '';
+
+        const memory = typeof partnershipMemories !== 'undefined' ? partnershipMemories[partnershipId] : null;
+        currentLiqLots = memory && Array.isArray(memory.lots) ? [...memory.lots] : [];
+
+        // Sort by slaughter_date ASC (nearest first)
+        currentLiqLots.sort((a, b) => {
+            const da = a.slaughter_date || '9999-12-31';
+            const db = b.slaughter_date || '9999-12-31';
+            return da.localeCompare(db);
+        });
+
+        if (currentLiqLots.length === 0) {
+            container.innerHTML = '<p style="color: #64748b; margin: 0.5rem; font-size: 0.9rem;">Nenhum lote registrado.</p>';
+            return;
+        }
+
+        currentLiqLots.forEach(lot => {
+            const slaughterFormatted = lot.slaughter_date ? lot.slaughter_date.split('-').reverse().join('/') : '-';
+            const allocatedValue = parseFloat(lot.allocated_amount || lot.original_principal || 0);
+            const animalCount = parseInt(lot.allocated_animals != null ? lot.allocated_animals : (lot.animal_count || 0));
+            const balanceValue = parseFloat(lot.balance_value != null ? lot.balance_value : 0);
+            const balanceAnimals = parseInt(lot.balance_animals != null ? lot.balance_animals : 0);
+            const isSettled = (animalCount > 0 && balanceAnimals === 0) || balanceValue < 0.01;
+
+            const balanceValueHtml = balanceValue < 0.01
+                ? `<span style="color: #10b981;">R$ 0,00 (Liquidado)</span>`
+                : `<span style="color: #818cf8;">${formatLiquidationCurrency(balanceValue)}</span>`;
+            const balanceAnimalsHtml = (animalCount > 0 && balanceAnimals === 0)
+                ? `<span style="color: #10b981;">0 (Liquidado)</span>`
+                : `<span style="color: #fbbf24;">${balanceAnimals} cab.</span>`;
+
+            const row = document.createElement('label');
+            row.style.cssText = 'display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.5rem; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;';
+            row.onmouseover = function() { this.style.background = 'rgba(255,255,255,0.03)'; };
+            row.onmouseout = function() { this.style.background = 'transparent'; };
+
+            row.innerHTML = `
+                <input type="checkbox" class="liq-lot-checkbox" value="${lot.lot_id}" 
+                    data-allocated="${allocatedValue}"
+                    data-rate="${parseFloat(lot.monthly_rate || lot.rate || 0)}"
+                    data-animals="${animalCount}"
+                    data-slaughter="${lot.slaughter_date || ''}"
+                    style="width: 16px; height: 16px; cursor: pointer; flex-shrink: 0; margin-top: 3px;">
+                <span style="color: #e2e8f0; font-size: 0.9rem; flex: 1; line-height: 1.5;">
+                    <strong>Lote ${lot.lot_number}</strong>
+                    <span style="color: #94a3b8;">- Venc. ${slaughterFormatted}</span>
+                    <br>
+                    <span style="color: #64748b;">Valor Alocado:</span>
+                    <span style="color: #60a5fa;">${formatLiquidationCurrency(allocatedValue)}</span>
+                    <span style="color: #64748b;">| Animais:</span>
+                    <span style="color: #fbbf24;">${animalCount} cab.</span>
+                    <br>
+                    <span style="color: #64748b;">Saldo:</span> ${balanceValueHtml}
+                    <span style="color: #64748b;">|</span> ${balanceAnimalsHtml}
+                </span>
+            `;
+
+            container.appendChild(row);
+        });
+
+        // Attach event listeners to checkboxes
+        container.querySelectorAll('.liq-lot-checkbox').forEach(cb => {
+            cb.addEventListener('change', updateLiquidationLotSuggestion);
+        });
+    }
+
+    function parseLocalDate(dateStr) {
+        if (!dateStr) return null;
+        const parts = dateStr.split('-').map(Number);
+        if (parts.length !== 3 || parts.some(isNaN)) return null;
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+
+    function calculateMonthsBetweenDates(startDateStr, endDateStr) {
+        const start = parseLocalDate(startDateStr);
+        const end = parseLocalDate(endDateStr);
+        if (!start || !end) return 0.0001;
+
+        const millisecondsPerDay = 1000 * 60 * 60 * 24;
+        const days = Math.abs(end - start) / millisecondsPerDay;
+        const months = days / 30;
+        return months > 0 ? months : 0.0001;
+    }
+
+    function getSelectedLiquidationLots() {
+        const checkboxes = document.querySelectorAll('.liq-lot-checkbox:checked');
+        const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+        return currentLiqLots.filter(lot => selectedIds.includes(String(lot.lot_id)));
+    }
+
+    function getLotBalanceAnimals(lot) {
+        return parseInt(lot.balance_animals != null ? lot.balance_animals : (lot.allocated_animals || lot.animal_count || 0));
+    }
+
+    function updateTotalQuantityFromLots() {
+        let total = 0;
+        document.querySelectorAll('.liq-lot-quantity').forEach(input => {
+            total += parseInt(input.value || 0);
+        });
+        document.getElementById('liq-quantity').value = total > 0 ? total : '';
+    }
+
+    function updateLotQuantityInputs(selectedLots) {
+        const wrapper = document.getElementById('liq-lot-quantities-wrapper');
+        const container = document.getElementById('liq-lot-quantities-container');
+
+        if (selectedLots.length <= 1) {
+            wrapper.style.display = 'none';
+            container.innerHTML = '';
+            return;
+        }
+
+        wrapper.style.display = 'block';
+        container.innerHTML = '';
+
+        selectedLots.forEach(lot => {
+            const balanceAnimals = getLotBalanceAnimals(lot);
+            const row = document.createElement('div');
+            row.style.cssText = 'display: grid; grid-template-columns: 1fr 110px; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem;';
+            row.innerHTML = `
+                <label for="liq-lot-quantity-${lot.lot_id}" style="color: #e2e8f0; font-size: 0.9rem; margin: 0;">
+                    Lote ${lot.lot_number}
+                    <span style="color: #94a3b8; font-size: 0.8rem; display: block;">Saldo: ${balanceAnimals} cab.</span>
+                </label>
+                <input type="number" id="liq-lot-quantity-${lot.lot_id}" class="liq-lot-quantity" data-lot-id="${lot.lot_id}" min="0" max="${balanceAnimals}" step="1" value="${balanceAnimals > 0 ? balanceAnimals : ''}"
+                    style="width: 100%; padding: 0.55rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #e2e8f0;">
+            `;
+            container.appendChild(row);
+        });
+
+        container.querySelectorAll('.liq-lot-quantity').forEach(input => {
+            input.addEventListener('input', updateTotalQuantityFromLots);
+        });
+        updateTotalQuantityFromLots();
+    }
+
+    function updateLiquidationLotSuggestion() {
+        const selectedLots = getSelectedLiquidationLots();
+        if (selectedLots.length === 0) {
+            document.getElementById('liq-amount').value = '';
+            document.getElementById('liq-quantity').value = '';
+            updateLotQuantityInputs([]);
+            return;
+        }
+
+        const memory = typeof partnershipMemories !== 'undefined' ? partnershipMemories[currentLiqPartnershipId] : null;
+        const liquidationDate = document.getElementById('liq-date').value;
+        if (!memory || !memory.start_date || !liquidationDate) return;
+
+        let totalProjected = 0;
+        let totalAnimals = 0;
+
+        selectedLots.forEach(lot => {
+            const allocatedAmount = parseFloat(lot.allocated_amount || lot.original_principal || 0);
+            const monthlyRate = parseFloat(lot.monthly_rate || lot.rate || 0);
+            const months = calculateMonthsBetweenDates(memory.start_date, liquidationDate);
+            const projectedValueToDate = allocatedAmount * Math.pow(1 + (monthlyRate / 100), months);
+            totalProjected += projectedValueToDate;
+            totalAnimals += getLotBalanceAnimals(lot);
+        });
+
+        if (totalProjected > 0) {
+            document.getElementById('liq-amount').value = totalProjected.toFixed(2);
+        }
+        if (totalAnimals > 0) {
+            document.getElementById('liq-quantity').value = totalAnimals;
+        }
+        updateLotQuantityInputs(selectedLots);
+
+        updateOverflowWarning();
+    }
+
+    // Sum the projected-to-date value of the currently selected lots.
+    function getSelectedLotsProjectedTotal() {
+        const selectedLots = getSelectedLiquidationLots();
+        const memory = typeof partnershipMemories !== 'undefined' ? partnershipMemories[currentLiqPartnershipId] : null;
+        const liquidationDate = document.getElementById('liq-date').value;
+        if (selectedLots.length === 0 || !memory || !memory.start_date || !liquidationDate) return 0;
+
+        let totalProjected = 0;
+        const months = calculateMonthsBetweenDates(memory.start_date, liquidationDate);
+        selectedLots.forEach(lot => {
+            const allocatedAmount = parseFloat(lot.allocated_amount || lot.original_principal || 0);
+            const monthlyRate = parseFloat(lot.monthly_rate || lot.rate || 0);
+            totalProjected += allocatedAmount * Math.pow(1 + (monthlyRate / 100), months);
+        });
+        return totalProjected;
+    }
+
+    // Show a warning when the typed amount exceeds the selected lots, making it
+    // clear that the excess will spill over into the next lots by due date.
+    function updateOverflowWarning() {
+        const warning = document.getElementById('liq-overflow-warning');
+        const textEl = document.getElementById('liq-overflow-text');
+        if (!warning || !textEl) return;
+
+        const selectedLots = getSelectedLiquidationLots();
+        const amount = parseFloat(document.getElementById('liq-amount').value || 0);
+        const selectedTotal = getSelectedLotsProjectedTotal();
+
+        if (selectedLots.length === 0 || amount <= 0 || selectedTotal <= 0 || amount <= selectedTotal + 0.01) {
+            warning.style.display = 'none';
+            return;
+        }
+
+        const overflow = amount - selectedTotal;
+        textEl.textContent = `O valor informado ultrapassa em ${formatLiquidationCurrency(overflow)} `
+            + `o total dos lotes selecionados (${formatLiquidationCurrency(selectedTotal)}). `
+            + `O excedente será liquidado automaticamente nos próximos lotes por data de vencimento.`;
+        warning.style.display = 'block';
+    }
+
+    function toggleLots(partnershipId) {
+        const row = document.getElementById(`lots-row-${partnershipId}`);
+        const btn = document.querySelector(`tr[data-id="${partnershipId}"] .btn-toggle i`);
+
+        if (row.style.display === 'none') {
+            row.style.display = 'table-row';
+            btn.classList.remove('fa-chevron-right');
+            btn.classList.add('fa-chevron-down');
+        } else {
+            row.style.display = 'none';
+            btn.classList.remove('fa-chevron-down');
+            btn.classList.add('fa-chevron-right');
+        }
+    }
+
+    async function deleteLiquidation(id) {
+        if (!confirm('Tem certeza que deseja excluir esta liquidação?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`partnerships.php?action=delete_liquidation&id=${id}`);
+            const result = await response.json();
+
+            if (result.success) {
+                window.location.reload();
+            } else {
+                alert('Erro ao excluir: ' + result.message);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Erro ao excluir liquidação');
+        }
+    }
+
+    document.getElementById('liquidationForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+
+        const date = document.getElementById('liq-date').value;
+        const amount = document.getElementById('liq-amount').value;
+        const isSettlement = document.getElementById('liq-is-settlement').checked ? 1 : 0;
+        const quantity = document.getElementById('liq-quantity').value;
+
+        // Collect selected lot IDs
+        const selectedCheckboxes = document.querySelectorAll('.liq-lot-checkbox:checked');
+        const lotIds = Array.from(selectedCheckboxes).map(cb => cb.value);
+        const lotQuantities = {};
+        document.querySelectorAll('.liq-lot-quantity').forEach(input => {
+            const qty = parseInt(input.value || 0);
+            if (qty > 0) {
+                lotQuantities[input.dataset.lotId] = qty;
+            }
+        });
+
+        const formData = new FormData();
+        formData.append('partnership_id', currentLiqPartnershipId);
+        formData.append('date', date);
+        formData.append('amount_total', amount);
+        formData.append('is_settlement', isSettlement);
+        if (quantity) {
+            formData.append('quantity', quantity);
+        }
+        if (Object.keys(lotQuantities).length > 0) {
+            formData.append('lot_quantities', JSON.stringify(lotQuantities));
+        }
+        // Send lot_ids as JSON array (empty means auto-distribute by slaughter_date)
+        formData.append('lot_ids', JSON.stringify(lotIds));
+
+        try {
+            const response = await fetch('partnerships.php?action=add_liquidation', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                alert('Liquidação registrada com sucesso!');
+                if (typeof savePartnershipFilters === 'function') {
+                    savePartnershipFilters();
+                }
+                window.location.reload();
+            } else {
+                alert('Erro: ' + result.message);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Erro ao registrar liquidação');
+        }
+    });
+
+    document.getElementById('liq-date').addEventListener('change', updateLiquidationLotSuggestion);
+    document.getElementById('liq-amount').addEventListener('input', updateOverflowWarning);
+</script>

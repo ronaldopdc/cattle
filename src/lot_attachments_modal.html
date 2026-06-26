@@ -1,0 +1,148 @@
+<!-- Lot Attachments Modal -->
+<div id="lotAttachmentsModal"
+    style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); overflow-y: auto;">
+    <div
+        style="position: relative; margin: 3% auto; padding: 2rem; width: 600px; max-width: 90%; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
+        <span onclick="closeLotAttachmentsModal()"
+            style="position: absolute; right: 1.5rem; top: 1.5rem; font-size: 2rem; font-weight: bold; cursor: pointer; color: #94a3b8; transition: color 0.3s;">&times;</span>
+
+        <h2 style="margin-top: 0; color: #a78bfa; font-weight: 600;">Anexos do Lote #<span
+                id="lot-attachments-id"></span></h2>
+
+        <!-- Upload Form -->
+        <form id="lotAttachmentForm" enctype="multipart/form-data"
+            style="background: rgba(255, 255, 255, 0.03); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+            <div class="form-group">
+                <label style="color: #cbd5e1;">Arquivo</label>
+                <input type="file" id="lot-attachment-file" required
+                    accept=".pdf,.jpg,.jpeg,.png,.gif,.doc,.docx,.xls,.xlsx,.zip"
+                    style="width: 100%; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #e2e8f0;">
+            </div>
+            <div class="form-group">
+                <label style="color: #cbd5e1;">Descrição (opcional)</label>
+                <textarea id="lot-attachment-description" rows="2"
+                    style="width: 100%; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #e2e8f0; font-family: inherit;"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary"
+                style="width: 100%; background-color: #a78bfa; color: #1e293b; font-weight: 600;">
+                <i class="fas fa-upload"></i> Enviar Anexo
+            </button>
+        </form>
+
+        <!-- Attachments List -->
+        <div id="lot-attachments-list">
+            <h4 style="color: #94a3b8; margin-bottom: 1rem;">Anexos cadastrados</h4>
+            <div id="lot-attachments-container"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentLotAttachmentsId = null;
+
+    async function openLotAttachmentsModal(lotId) {
+        currentLotAttachmentsId = lotId;
+        document.getElementById('lot-attachments-id').innerText = lotId;
+        document.getElementById('lotAttachmentsModal').style.display = 'block';
+        await loadLotAttachments();
+    }
+
+    function closeLotAttachmentsModal() {
+        document.getElementById('lotAttachmentsModal').style.display = 'none';
+        document.getElementById('lotAttachmentForm').reset();
+    }
+
+    async function loadLotAttachments() {
+        try {
+            const response = await fetch(`lots.php?action=get_lot_attachments&lot_id=${currentLotAttachmentsId}`);
+            const attachments = await response.json();
+
+            const container = document.getElementById('lot-attachments-container');
+            if (attachments.length === 0) {
+                container.innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 2rem;">Nenhum anexo encontrado</p>';
+            } else {
+                container.innerHTML = attachments.map(att => `
+                    <div style="background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 6px; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="flex: 1;">
+                            <div style="color: #e2e8f0; font-weight: 500; margin-bottom: 0.25rem;">${att.filename}</div>
+                            ${att.description ? `<div style="color: #94a3b8; font-size: 0.85rem;">${att.description}</div>` : ''}
+                            <div style="color: #64748b; font-size: 0.75rem; margin-top: 0.25rem;">
+                                ${(att.file_size / 1024).toFixed(2)} KB • ${new Date(att.created_at).toLocaleDateString('pt-BR')}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="downloadLotAttachment(${att.id})" class="btn-icon" title="Download" style="color: #10b981;">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button onclick="deleteLotAttachment(${att.id})" class="btn-icon" title="Excluir" style="color: #ef4444;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        } catch (error) {
+            console.error('Error loading attachments:', error);
+        }
+    }
+
+    function downloadLotAttachment(id) {
+        window.open(`lots.php?action=download_lot_attachment&id=${id}`, '_blank');
+    }
+
+    async function deleteLotAttachment(id) {
+        if (!confirm('Tem certeza que deseja excluir este anexo?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`lots.php?action=delete_lot_attachment&id=${id}`);
+            const result = await response.json();
+
+            if (result.success) {
+                await loadLotAttachments();
+            } else {
+                alert('Erro ao excluir: ' + result.message);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Erro ao excluir anexo');
+        }
+    }
+
+    document.getElementById('lotAttachmentForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+
+        const fileInput = document.getElementById('lot-attachment-file');
+        const description = document.getElementById('lot-attachment-description').value;
+
+        if (!fileInput.files[0]) {
+            alert('Selecione um arquivo');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('lot_id', currentLotAttachmentsId);
+        formData.append('file', fileInput.files[0]);
+        formData.append('description', description);
+
+        try {
+            const response = await fetch('lots.php?action=upload_lot_attachment', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                await loadLotAttachments();
+                document.getElementById('lotAttachmentForm').reset();
+            } else {
+                alert('Erro: ' + result.message);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Erro ao enviar arquivo');
+        }
+    });
+</script>

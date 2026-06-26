@@ -1,0 +1,148 @@
+<!-- Partner Attachments Modal -->
+<div id="partnerAttachmentsModal"
+    style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); overflow-y: auto;">
+    <div
+        style="position: relative; margin: 3% auto; padding: 2rem; width: 600px; max-width: 90%; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
+        <span onclick="closePartnerAttachmentsModal()"
+            style="position: absolute; right: 1.5rem; top: 1.5rem; font-size: 2rem; font-weight: bold; cursor: pointer; color: #94a3b8; transition: color 0.3s;">&times;</span>
+
+        <h2 style="margin-top: 0; color: #a78bfa; font-weight: 600;">Anexos do Parceiro #<span
+                id="partner-attachments-id"></span></h2>
+
+        <!-- Upload Form -->
+        <form id="partnerAttachmentForm" enctype="multipart/form-data"
+            style="background: rgba(255, 255, 255, 0.03); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+            <div class="form-group">
+                <label style="color: #cbd5e1;">Arquivo</label>
+                <input type="file" id="partner-attachment-file" required
+                    accept=".pdf,.jpg,.jpeg,.png,.gif,.doc,.docx,.xls,.xlsx,.zip"
+                    style="width: 100%; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #e2e8f0;">
+            </div>
+            <div class="form-group">
+                <label style="color: #cbd5e1;">Descrição (opcional)</label>
+                <textarea id="partner-attachment-description" rows="2"
+                    style="width: 100%; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #e2e8f0; font-family: inherit;"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary"
+                style="width: 100%; background-color: #a78bfa; color: #1e293b; font-weight: 600;">
+                <i class="fas fa-upload"></i> Enviar Anexo
+            </button>
+        </form>
+
+        <!-- Attachments List -->
+        <div id="partner-attachments-list">
+            <h4 style="color: #94a3b8; margin-bottom: 1rem;">Anexos cadastrados</h4>
+            <div id="partner-attachments-container"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentPartnerAttachmentsId = null;
+
+    async function openPartnerAttachmentsModal(partnerId) {
+        currentPartnerAttachmentsId = partnerId;
+        document.getElementById('partner-attachments-id').innerText = partnerId;
+        document.getElementById('partnerAttachmentsModal').style.display = 'block';
+        await loadPartnerAttachments();
+    }
+
+    function closePartnerAttachmentsModal() {
+        document.getElementById('partnerAttachmentsModal').style.display = 'none';
+        document.getElementById('partnerAttachmentForm').reset();
+    }
+
+    async function loadPartnerAttachments() {
+        try {
+            const response = await fetch(`partners.php?action=get_partner_attachments&partner_id=${currentPartnerAttachmentsId}`);
+            const attachments = await response.json();
+
+            const container = document.getElementById('partner-attachments-container');
+            if (attachments.length === 0) {
+                container.innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 2rem;">Nenhum anexo encontrado</p>';
+            } else {
+                container.innerHTML = attachments.map(att => `
+                    <div style="background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 6px; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="flex: 1;">
+                            <div style="color: #e2e8f0; font-weight: 500; margin-bottom: 0.25rem;">${att.filename}</div>
+                            ${att.description ? `<div style="color: #94a3b8; font-size: 0.85rem;">${att.description}</div>` : ''}
+                            <div style="color: #64748b; font-size: 0.75rem; margin-top: 0.25rem;">
+                                ${(att.file_size / 1024).toFixed(2)} KB • ${new Date(att.created_at).toLocaleDateString('pt-BR')}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="downloadPartnerAttachment(${att.id})" class="btn-icon" title="Download" style="color: #10b981;">
+                                <i class="fas fa-download"></i>
+                            </button>
+                            <button onclick="deletePartnerAttachment(${att.id})" class="btn-icon" title="Excluir" style="color: #ef4444;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        } catch (error) {
+            console.error('Error loading attachments:', error);
+        }
+    }
+
+    function downloadPartnerAttachment(id) {
+        window.open(`partners.php?action=download_partner_attachment&id=${id}`, '_blank');
+    }
+
+    async function deletePartnerAttachment(id) {
+        if (!confirm('Tem certeza que deseja excluir este anexo?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`partners.php?action=delete_partner_attachment&id=${id}`);
+            const result = await response.json();
+
+            if (result.success) {
+                await loadPartnerAttachments();
+            } else {
+                alert('Erro ao excluir: ' + result.message);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Erro ao excluir anexo');
+        }
+    }
+
+    document.getElementById('partnerAttachmentForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+
+        const fileInput = document.getElementById('partner-attachment-file');
+        const description = document.getElementById('partner-attachment-description').value;
+
+        if (!fileInput.files[0]) {
+            alert('Selecione um arquivo');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('partner_id', currentPartnerAttachmentsId);
+        formData.append('file', fileInput.files[0]);
+        formData.append('description', description);
+
+        try {
+            const response = await fetch('partners.php?action=upload_partner_attachment', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                await loadPartnerAttachments();
+                document.getElementById('partnerAttachmentForm').reset();
+            } else {
+                alert('Erro: ' + result.message);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Erro ao enviar arquivo');
+        }
+    });
+</script>

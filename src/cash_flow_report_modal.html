@@ -1,0 +1,460 @@
+<!-- Livro Caixa Modal -->
+<div id="cashFlowModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7);">
+    <div style="position: relative; margin: 2% auto; padding: 2rem; width: 1400px; max-width: 98vw; max-height: 90vh; overflow-y: auto; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
+        
+        <span onclick="closeCashFlowModal()" style="position: absolute; right: 1.5rem; top: 1.5rem; font-size: 2rem; font-weight: bold; cursor: pointer; color: #94a3b8; transition: color 0.3s;">&times;</span>
+
+        <h2 style="margin-top: 0; color: #60a5fa; font-weight: 600; margin-bottom: 1.5rem;">Livro Caixa (Entradas e Saídas)</h2>
+
+        <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: center; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 8px;">
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="color: #94a3b8; font-size: 0.85rem;">Data Inicial</label>
+                <input type="date" id="cfDateStart" style="padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderCashFlowTable()">
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="color: #94a3b8; font-size: 0.85rem;">Data Final</label>
+                <input type="date" id="cfDateEnd" style="padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderCashFlowTable()">
+            </div>
+            <div style="margin-top: 1.5rem;">
+                <button type="button" class="btn btn-primary" onclick="renderCashFlowTable()" style="padding: 7px 16px;">Filtrar</button>
+            </div>
+        </div>
+
+        <div id="cashFlowModalBody" style="color: #e2e8f0;">
+            <div style="overflow-x: auto;">
+                <table id="cashFlowTable" style="width: 100%; font-size: 0.9rem; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: rgba(255,255,255,0.05);">
+                            <th style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Data</th>
+                            <th style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Tipo</th>
+                            <th style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Contrato</th>
+                            <th style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Parceiro</th>
+                            <th style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Entrada (R$)</th>
+                            <th style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Saída (R$)</th>
+                            <th style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Saldo (R$)</th>
+                            <th style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Qtd Entr.</th>
+                            <th style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Qtd Saída</th>
+                            <th style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Saldo Qtd</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cashFlowTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <button type="button" class="btn btn-secondary" onclick="exportCashFlowXLS()">
+                <i class="fas fa-file-excel"></i> Exportar XLS
+            </button>
+            <button type="button" class="btn btn-primary" onclick="closeCashFlowModal()">
+                Fechar
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    if (typeof formatCurrency !== 'function') {
+        function formatCurrency(value) {
+            return parseFloat(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+    }
+
+    function openCashFlowModal() {
+        const modal = document.getElementById('cashFlowModal');
+        
+        const dStart = document.getElementById('cfDateStart');
+        const dEnd = document.getElementById('cfDateEnd');
+        
+        // Use whatever is already in the inputs (set by dashboard)
+        // If empty, use 1 year ago as default
+        if (!dStart.value || !dEnd.value) {
+            const endDt = new Date();
+            const startDt = new Date();
+            startDt.setFullYear(startDt.getFullYear() - 1);
+            dEnd.value = endDt.toISOString().split('T')[0];
+            dStart.value = startDt.toISOString().split('T')[0];
+        }
+        
+        renderCashFlowTable();
+        modal.style.display = 'block';
+    }
+
+    function closeCashFlowModal() {
+        document.getElementById('cashFlowModal').style.display = 'none';
+    }
+
+    function renderCashFlowTable() {
+        const tbody = document.getElementById('cashFlowTableBody');
+        const dStart = document.getElementById('cfDateStart').value;
+        const dEnd = document.getElementById('cfDateEnd').value;
+        
+        if (!dStart || !dEnd) return;
+        
+        // Filter data mathematically
+        const filteredData = tblCashFlowData.filter(row => {
+            return row.date >= dStart && row.date <= dEnd;
+        });
+        
+        // Pre-initial balance (everything before dStart)
+        let globalRunningBalance = 0;
+        let globalIn = 0;
+        let globalOut = 0;
+        
+        let globalCattleBalance = 0;
+        let globalCattleIn = 0;
+        let globalCattleOut = 0;
+
+        // Optionally, calculate balance of records before Start Date
+        const pastData = tblCashFlowData.filter(row => row.date < dStart);
+        pastData.forEach(row => {
+            globalRunningBalance += (row.value_in - row.value_out);
+            globalCattleBalance += ((row.cattle_in || 0) - (row.cattle_out || 0));
+        });
+
+        let html = '';
+        
+        if (filteredData.length === 0) {
+            html += `<tr><td colspan="10" style="padding: 2rem; text-align: center; color: #64748b;">Nenhum registro encontrado no período.</td></tr>`;
+        }
+
+        if ((globalRunningBalance !== 0 || globalCattleBalance !== 0) && pastData.length > 0) {
+            html += `
+                <tr style="background: rgba(255,255,255,0.03); font-weight: 600;">
+                    <td colspan="6" style="padding: 10px; color: #cbd5e1; text-align: right;">Saldo Anterior:</td>
+                    <td style="padding: 10px; text-align: right; color: #818cf8;">${formatCurrency(globalRunningBalance)}</td>
+                    <td colspan="2"></td>
+                    <td style="padding: 10px; text-align: right; color: #818cf8;">${globalCattleBalance}</td>
+                </tr>
+            `;
+        }
+
+        let lastMonth = null;
+        let monthIn = 0;
+        let monthOut = 0;
+        let monthCattleIn = 0;
+        let monthCattleOut = 0;
+
+        filteredData.forEach((row, idx) => {
+            const dateObj = new Date(row.date + 'T12:00:00'); // Use noon to avoid timezone shift
+            const monthStr = ('0' + (dateObj.getMonth() + 1)).slice(-2) + '/' + dateObj.getFullYear();
+            
+            if (lastMonth && lastMonth !== monthStr) {
+                // Render subtotal row
+                html += `
+                    <tr style="background: rgba(255,255,255,0.03); font-weight: 600;">
+                        <td colspan="4" style="padding: 10px; color: #cbd5e1; text-align: right;">Subtotal ${lastMonth}:</td>
+                        <td style="padding: 10px; text-align: right; color: #34d399;">+ ${formatCurrency(monthIn)}</td>
+                        <td style="padding: 10px; text-align: right; color: #f87171;">- ${formatCurrency(monthOut)}</td>
+                        <td style="padding: 10px; text-align: right; color: #818cf8;">${formatCurrency(globalRunningBalance)}</td>
+                        <td style="padding: 10px; text-align: right; color: #34d399;">+ ${monthCattleIn}</td>
+                        <td style="padding: 10px; text-align: right; color: #f87171;">- ${monthCattleOut}</td>
+                        <td style="padding: 10px; text-align: right; color: #818cf8;">${globalCattleBalance}</td>
+                    </tr>
+                `;
+                monthIn = 0;
+                monthOut = 0;
+                monthCattleIn = 0;
+                monthCattleOut = 0;
+            }
+
+            globalRunningBalance += (row.value_in - row.value_out);
+            globalIn += row.value_in;
+            globalOut += row.value_out;
+            monthIn += row.value_in;
+            monthOut += row.value_out;
+
+            const cattleIn = row.cattle_in || 0;
+            const cattleOut = row.cattle_out || 0;
+            globalCattleBalance += (cattleIn - cattleOut);
+            globalCattleIn += cattleIn;
+            globalCattleOut += cattleOut;
+            monthCattleIn += cattleIn;
+            monthCattleOut += cattleOut;
+
+            const isEntrada = row.type === 'Entrada';
+            const colorIn = isEntrada ? '#34d399' : '#e2e8f0';
+            const colorOut = !isEntrada ? '#f87171' : '#e2e8f0';
+
+            html += `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+                    <td style="padding: 10px; color: #e2e8f0;">${row.formatted_date}</td>
+                    <td style="padding: 10px; color: ${isEntrada ? '#34d399' : '#f87171'};">${row.type}</td>
+                    <td style="padding: 10px; color: #94a3b8;">#${row.partnership_id}</td>
+                    <td style="padding: 10px; color: #e2e8f0;">${row.owner_name}</td>
+                    <td style="padding: 10px; text-align: right; color: ${colorIn};">${row.value_in > 0 ? '+ ' + formatCurrency(row.value_in) : '-'}</td>
+                    <td style="padding: 10px; text-align: right; color: ${colorOut};">${row.value_out > 0 ? '- ' + formatCurrency(row.value_out) : '-'}</td>
+                    <td style="padding: 10px; text-align: right; color: #818cf8;">${formatCurrency(globalRunningBalance)}</td>
+                    <td style="padding: 10px; text-align: right; color: #34d399;">${cattleIn > 0 ? '+ ' + cattleIn : '-'}</td>
+                    <td style="padding: 10px; text-align: right; color: #f87171;">${cattleOut > 0 ? '- ' + cattleOut : '-'}</td>
+                    <td style="padding: 10px; text-align: right; color: #818cf8;">${globalCattleBalance}</td>
+                </tr>
+            `;
+
+            lastMonth = monthStr;
+
+            if (idx === filteredData.length - 1) {
+                // Final monthly subtotal
+                html += `
+                    <tr style="background: rgba(255,255,255,0.03); font-weight: 600;">
+                        <td colspan="4" style="padding: 10px; color: #cbd5e1; text-align: right;">Subtotal ${lastMonth}:</td>
+                        <td style="padding: 10px; text-align: right; color: #34d399;">+ ${formatCurrency(monthIn)}</td>
+                        <td style="padding: 10px; text-align: right; color: #f87171;">- ${formatCurrency(monthOut)}</td>
+                        <td style="padding: 10px; text-align: right; color: #818cf8;">${formatCurrency(globalRunningBalance)}</td>
+                        <td style="padding: 10px; text-align: right; color: #34d399;">+ ${monthCattleIn}</td>
+                        <td style="padding: 10px; text-align: right; color: #f87171;">- ${monthCattleOut}</td>
+                        <td style="padding: 10px; text-align: right; color: #818cf8;">${globalCattleBalance}</td>
+                    </tr>
+                `;
+            }
+        });
+
+        // Summary by Owner
+        if (filteredData.length > 0) {
+            const partnerTotals = {};
+            filteredData.forEach(row => {
+                if (!partnerTotals[row.owner_name]) {
+                    partnerTotals[row.owner_name] = { in: 0, out: 0, c_in: 0, c_out: 0 };
+                }
+                partnerTotals[row.owner_name].in += row.value_in;
+                partnerTotals[row.owner_name].out += row.value_out;
+                partnerTotals[row.owner_name].c_in += (row.cattle_in || 0);
+                partnerTotals[row.owner_name].c_out += (row.cattle_out || 0);
+            });
+
+            html += `
+                <tr style="border-top: 2px solid rgba(255,255,255,0.1);">
+                    <td colspan="10" style="padding: 12px 10px 4px; color: #60a5fa; font-weight: 700; font-size: 0.95rem;">Resumo (no Período) por Proprietário:</td>
+                </tr>
+            `;
+
+            Object.entries(partnerTotals).forEach(([owner, totals]) => {
+                html += `
+                    <tr style="background: rgba(255,255,255,0.02);">
+                        <td colspan="4" style="padding: 8px 10px; color: #e2e8f0;">${owner}</td>
+                        <td style="padding: 8px 10px; text-align: right; color: #34d399;">+ ${formatCurrency(totals.in)}</td>
+                        <td style="padding: 8px 10px; text-align: right; color: #f87171;">- ${formatCurrency(totals.out)}</td>
+                        <td style="padding: 8px 10px; text-align: right; color: #818cf8;">${formatCurrency(totals.in - totals.out)}</td>
+                        <td style="padding: 8px 10px; text-align: right; color: #34d399;">+ ${totals.c_in}</td>
+                        <td style="padding: 8px 10px; text-align: right; color: #f87171;">- ${totals.c_out}</td>
+                        <td style="padding: 8px 10px; text-align: right; color: #818cf8;">${totals.c_in - totals.c_out}</td>
+                    </tr>
+                `;
+            });
+
+            // Grand Total Footer
+            html += `
+                <tr style="border-top: 2px solid rgba(255,255,255,0.1); background: rgba(96, 165, 250, 0.05); font-size: 1rem; font-weight: 700;">
+                    <td colspan="4" style="padding: 15px; color: #60a5fa; text-align: right;">TOTAL DO PERÍODO:</td>
+                    <td style="padding: 15px; text-align: right; color: #34d399;">+ ${formatCurrency(globalIn)}</td>
+                    <td style="padding: 15px; text-align: right; color: #f87171;">- ${formatCurrency(globalOut)}</td>
+                    <td style="padding: 15px; text-align: right; color: #818cf8;">${formatCurrency(globalRunningBalance)}</td>
+                    <td style="padding: 15px; text-align: right; color: #34d399;">+ ${globalCattleIn}</td>
+                    <td style="padding: 15px; text-align: right; color: #f87171;">- ${globalCattleOut}</td>
+                    <td style="padding: 15px; text-align: right; color: #818cf8;">${globalCattleBalance}</td>
+                </tr>
+            `;
+        }
+        
+        tbody.innerHTML = html;
+    }
+
+    function exportCashFlowXLS() {
+        const dStart = document.getElementById('cfDateStart').value;
+        const dEnd = document.getElementById('cfDateEnd').value;
+        if (!dStart || !dEnd) return;
+        
+        const filteredData = tblCashFlowData.filter(row => row.date >= dStart && row.date <= dEnd);
+        
+        let globalRunningBalance = 0;
+        let globalIn = 0;
+        let globalOut = 0;
+        
+        let globalCattleBalance = 0;
+        let globalCattleIn = 0;
+        let globalCattleOut = 0;
+
+        const pastData = tblCashFlowData.filter(row => row.date < dStart);
+        pastData.forEach(row => {
+            globalRunningBalance += (row.value_in - row.value_out);
+            globalCattleBalance += ((row.cattle_in || 0) - (row.cattle_out || 0));
+        });
+
+        let html = `
+            <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    table { border-collapse: collapse; width: 100%; }
+                    th, td { border: 1px solid #000; padding: 5px; }
+                    .header { background-color: #f0f0f0; font-weight: bold; }
+                    .subtotal { background-color: #fafafa; font-weight: bold; text-align: right; }
+                    .total { background-color: #e2e8f0; font-weight: bold; font-size: 1.1em; text-align: right; }
+                    .number { text-align: right; }
+                </style>
+            </head>
+            <body>
+                <h2>Relatório Livro Caixa (Entradas e Saídas)</h2>
+                <p>Período: ${dStart.split('-').reverse().join('/')} a ${dEnd.split('-').reverse().join('/')}</p>
+                <table>
+                    <thead>
+                        <tr class="header">
+                            <th>Data</th>
+                            <th>Tipo</th>
+                            <th>Contrato</th>
+                            <th>Parceiro</th>
+                            <th>Entrada (R$)</th>
+                            <th>Saída (R$)</th>
+                            <th>Saldo (R$)</th>
+                            <th>Qtd Entr.</th>
+                            <th>Qtd Saída</th>
+                            <th>Saldo Qtd</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        if (globalRunningBalance !== 0 || globalCattleBalance !== 0 && pastData.length > 0) {
+            html += `
+                <tr class="subtotal">
+                    <td colspan="6">Saldo Anterior:</td>
+                    <td class="number">${globalRunningBalance.toFixed(2).replace('.', ',')}</td>
+                    <td colspan="2"></td>
+                    <td class="number">${globalCattleBalance}</td>
+                </tr>
+            `;
+        }
+
+        let lastMonth = null;
+        let monthIn = 0;
+        let monthOut = 0;
+        let monthCattleIn = 0;
+        let monthCattleOut = 0;
+
+        filteredData.forEach((row, idx) => {
+            const dateObj = new Date(row.date + 'T12:00:00');
+            const monthStr = ('0' + (dateObj.getMonth() + 1)).slice(-2) + '/' + dateObj.getFullYear();
+            
+            const cattleIn = row.cattle_in || 0;
+            const cattleOut = row.cattle_out || 0;
+            
+            if (lastMonth && lastMonth !== monthStr) {
+                html += `
+                    <tr class="subtotal">
+                        <td colspan="4">Subtotal ${lastMonth}:</td>
+                        <td class="number">${monthIn.toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${monthOut.toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${globalRunningBalance.toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${monthCattleIn}</td>
+                        <td class="number">${monthCattleOut}</td>
+                        <td class="number">${globalCattleBalance}</td>
+                    </tr>
+                `;
+                monthIn = 0;
+                monthOut = 0;
+                monthCattleIn = 0;
+                monthCattleOut = 0;
+            }
+
+            globalRunningBalance += (row.value_in - row.value_out);
+            globalIn += row.value_in;
+            globalOut += row.value_out;
+            monthIn += row.value_in;
+            monthOut += row.value_out;
+
+            globalCattleBalance += (cattleIn - cattleOut);
+            globalCattleIn += cattleIn;
+            globalCattleOut += cattleOut;
+            monthCattleIn += cattleIn;
+            monthCattleOut += cattleOut;
+
+            html += `
+                <tr>
+                    <td>${row.formatted_date}</td>
+                    <td>${row.type}</td>
+                    <td>#${row.partnership_id}</td>
+                    <td>${row.owner_name}</td>
+                    <td class="number">${row.value_in > 0 ? row.value_in.toFixed(2).replace('.', ',') : '-'}</td>
+                    <td class="number">${row.value_out > 0 ? row.value_out.toFixed(2).replace('.', ',') : '-'}</td>
+                    <td class="number">${globalRunningBalance.toFixed(2).replace('.', ',')}</td>
+                    <td class="number">${cattleIn > 0 ? cattleIn : '-'}</td>
+                    <td class="number">${cattleOut > 0 ? cattleOut : '-'}</td>
+                    <td class="number">${globalCattleBalance}</td>
+                </tr>
+            `;
+
+            lastMonth = monthStr;
+
+            if (idx === filteredData.length - 1) {
+                html += `
+                    <tr class="subtotal">
+                        <td colspan="4">Subtotal ${lastMonth}:</td>
+                        <td class="number">${monthIn.toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${monthOut.toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${globalRunningBalance.toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${monthCattleIn}</td>
+                        <td class="number">${monthCattleOut}</td>
+                        <td class="number">${globalCattleBalance}</td>
+                    </tr>
+                `;
+            }
+        });
+
+        if (filteredData.length > 0) {
+            const partnerTotals = {};
+            filteredData.forEach(row => {
+                if (!partnerTotals[row.owner_name]) {
+                    partnerTotals[row.owner_name] = { in: 0, out: 0, c_in: 0, c_out: 0 };
+                }
+                partnerTotals[row.owner_name].in += row.value_in;
+                partnerTotals[row.owner_name].out += row.value_out;
+                partnerTotals[row.owner_name].c_in += (row.cattle_in || 0);
+                partnerTotals[row.owner_name].c_out += (row.cattle_out || 0);
+            });
+
+            html += `
+                <tr class="header">
+                    <td colspan="10" style="text-align: left;">Resumo por Parceiro (No Período):</td>
+                </tr>
+            `;
+
+            Object.entries(partnerTotals).forEach(([owner, totals]) => {
+                html += `
+                    <tr>
+                        <td colspan="4">${owner}</td>
+                        <td class="number">${totals.in.toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${totals.out.toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${(totals.in - totals.out).toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${totals.c_in}</td>
+                        <td class="number">${totals.c_out}</td>
+                        <td class="number">${totals.c_in - totals.c_out}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                <tr class="total">
+                    <td colspan="4">TOTAL DO PERÍODO:</td>
+                    <td class="number">${globalIn.toFixed(2).replace('.', ',')}</td>
+                    <td class="number">${globalOut.toFixed(2).replace('.', ',')}</td>
+                    <td class="number">${globalRunningBalance.toFixed(2).replace('.', ',')}</td>
+                    <td class="number">${globalCattleIn}</td>
+                    <td class="number">${globalCattleOut}</td>
+                    <td class="number">${globalCattleBalance}</td>
+                </tr>
+            `;
+        }
+
+        html += `</tbody></table></body></html>`;
+
+        const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'relatorio_caixa.xls';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+</script>

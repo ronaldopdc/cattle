@@ -1,0 +1,250 @@
+<!-- Simulation Modal -->
+<div id="simulationModal"
+    style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7);">
+    <div
+        style="position: relative; margin: 5% auto; padding: 2rem; width: 450px; max-width: 90%; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
+        <span onclick="closeSimulationModal()"
+            style="position: absolute; right: 1.5rem; top: 1.5rem; font-size: 2rem; font-weight: bold; cursor: pointer; color: #94a3b8; transition: color 0.3s;">&times;</span>
+
+        <h2 style="margin-top: 0; color: #38bdf8; font-weight: 600; display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+            <i class="fas fa-calculator"></i> Simulação de Rendimento
+        </h2>
+
+        <div id="simulationForm">
+            <!-- Lot Selector (Optional) -->
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+                <label style="color: #cbd5e1; display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Lote (Opcional)</label>
+                <select id="sim-lot" onchange="onSimulationLotChange(this)"
+                    style="width: 100%; padding: 0.75rem; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #e2e8f0; outline: none; transition: border-color 0.3s;">
+                    <option value="">Selecione um Lote (Opcional)...</option>
+                    <?php
+                    global $pdo;
+                    $simLots = [];
+                    if (isset($pdo)) {
+                        $simLots = $pdo->query("
+                            SELECT l.*, 
+                                   p.id as active_partnership_id,
+                                   p.start_date as active_partnership_start_date,
+                                   pl.monthly_rate as active_partnership_rate,
+                                   pl.slaughter_date as active_partnership_slaughter_date,
+                                   pl.projected_value as active_partnership_projected
+                            FROM lots l
+                            LEFT JOIN partnership_lots pl ON l.id = pl.lot_id
+                            LEFT JOIN partnerships p ON pl.partnership_id = p.id AND NOT EXISTS (
+                                SELECT 1 FROM partnership_liquidations liq 
+                                WHERE liq.partnership_id = p.id AND (liq.is_settlement = 1 OR liq.balance_after <= 0.05)
+                            )
+                            WHERE 
+                                NOT EXISTS (SELECT 1 FROM partnership_lots pl2 WHERE pl2.lot_id = l.id)
+                                OR p.id IS NOT NULL
+                            ORDER BY l.lot_number ASC
+                        ")->fetchAll(PDO::FETCH_ASSOC);
+                    }
+                    foreach ($simLots as $slot): 
+                        $initialVal = 0;
+                        $isAllocated = ($slot['active_partnership_id'] !== null);
+                        
+                        if ($isAllocated) {
+                            // Reverse calculate allocated amount from projected value
+                            $start = new DateTime($slot['active_partnership_start_date']);
+                            $slaughter = new DateTime($slot['active_partnership_slaughter_date']);
+                            $interval = $start->diff($slaughter);
+                            $months = $interval->y * 12 + $interval->m + ($interval->d / 30);
+                            if ($months <= 0) {
+                                $months = 0.0001;
+                            }
+                            $rate = floatval($slot['active_partnership_rate']);
+                            $projected = floatval($slot['active_partnership_projected']);
+                            $initialVal = $projected / pow((1 + $rate / 100), $months);
+                        } else {
+                            $weight = floatval($slot['protocol_weight']);
+                            $count = intval($slot['animal_count']);
+                            $price = floatval($slot['indexed_price']);
+                            $maxAdvancePercent = floatval($slot['max_advance_percent']);
+                            $initialVal = (($weight * $count) / 30) * $price * ($maxAdvancePercent / 100);
+                        }
+                    ?>
+                        <option value="<?= htmlspecialchars($slot['id']) ?>" 
+                                data-initial-value="<?= number_format($initialVal, 2, '.', '') ?>"
+                                data-start-date="<?= htmlspecialchars($slot['active_partnership_start_date'] ?? $slot['protocol_date'] ?? '') ?>"
+                                data-end-date="<?= htmlspecialchars($slot['active_partnership_slaughter_date'] ?? $slot['exit_forecast_date'] ?? '') ?>"
+                                data-rate="<?= $slot['active_partnership_rate'] !== null ? number_format(floatval($slot['active_partnership_rate']), 2, '.', '') : '' ?>">
+                            Lote <?= htmlspecialchars($slot['lot_number']) ?> - <?= htmlspecialchars($slot['breed']) ?> (<?= $isAllocated ? 'Alocado: R$ ' . number_format($initialVal, 2, ',', '.') : 'Disp: R$ ' . number_format($initialVal, 2, ',', '.') ?>)
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <!-- Value Input -->
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+                <label style="color: #cbd5e1; display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Valor Inicial (R$)</label>
+                <input type="number" id="sim-value" step="0.01" value="100000.00"
+                    style="width: 100%; padding: 0.75rem; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #e2e8f0; outline: none; transition: border-color 0.3s;">
+            </div>
+            
+            <!-- Rate Input -->
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+                <label style="color: #cbd5e1; display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Taxa de Engorda Mensal (%)</label>
+                <input type="number" id="sim-rate" step="0.01" value="1.50"
+                    style="width: 100%; padding: 0.75rem; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #e2e8f0; outline: none; transition: border-color 0.3s;">
+            </div>
+
+            <!-- Period Type Selector -->
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+                <label style="color: #cbd5e1; display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Tipo de Período</label>
+                <div style="display: flex; gap: 1.5rem; margin-top: 0.25rem;">
+                    <label style="color: #e2e8f0; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="radio" name="sim-period-type" value="dates" checked onchange="togglePeriodFields()" style="accent-color: #38bdf8; width: auto; height: auto; margin: 0;">
+                        Por Período (Datas)
+                    </label>
+                    <label style="color: #e2e8f0; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="radio" name="sim-period-type" value="days" onchange="togglePeriodFields()" style="accent-color: #38bdf8; width: auto; height: auto; margin: 0;">
+                        Por Dias
+                    </label>
+                </div>
+            </div>
+
+            <!-- Date Fields -->
+            <div id="sim-date-fields" style="margin-bottom: 2rem;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label style="color: #cbd5e1; display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Data Inicial</label>
+                        <input type="date" id="sim-start-date" onchange="calculateDaysFromDates()"
+                            style="width: 100%; padding: 0.75rem; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #e2e8f0; outline: none; transition: border-color 0.3s;">
+                    </div>
+                    <div class="form-group">
+                        <label style="color: #cbd5e1; display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Data Final</label>
+                        <input type="date" id="sim-end-date" onchange="calculateDaysFromDates()"
+                            style="width: 100%; padding: 0.75rem; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #e2e8f0; outline: none; transition: border-color 0.3s;">
+                    </div>
+                </div>
+                <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 0.5rem;" id="sim-calculated-days-note">Selecione as datas</div>
+            </div>
+
+            <!-- Days Field -->
+            <div id="sim-days-fields" style="margin-bottom: 2rem; display: none;">
+                <div class="form-group">
+                    <label style="color: #cbd5e1; display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Número de Dias</label>
+                    <input type="number" id="sim-days" step="1" value="30"
+                        style="width: 100%; padding: 0.75rem; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #e2e8f0; outline: none; transition: border-color 0.3s;">
+                </div>
+            </div>
+
+            <button type="button" onclick="runSimulation()" class="btn btn-primary"
+                style="width: 100%; background: var(--primary-color); border: none; padding: 0.85rem; border-radius: 8px; color: white; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">
+                <i class="fas fa-file-pdf"></i> Gerar Simulação
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function openSimulationModal() {
+        document.getElementById('simulationModal').style.display = 'block';
+        // Reset or init fields
+        togglePeriodFields();
+    }
+
+    function closeSimulationModal() {
+        document.getElementById('simulationModal').style.display = 'none';
+    }
+
+    // Close on click outside
+    window.onclick = function(event) {
+        let modal = document.getElementById('simulationModal');
+        if (event.target == modal) {
+            closeSimulationModal();
+        }
+    }
+
+    function onSimulationLotChange(select) {
+        const selectedOption = select.options[select.selectedIndex];
+        if (select.value === "") {
+            return;
+        }
+
+        const initialVal = parseFloat(selectedOption.getAttribute('data-initial-value')) || 0;
+        const startDate = selectedOption.getAttribute('data-start-date');
+        const endDate = selectedOption.getAttribute('data-end-date');
+        const rate = selectedOption.getAttribute('data-rate');
+
+        // Populate value
+        document.getElementById('sim-value').value = initialVal.toFixed(2);
+
+        // Populate rate if it exists
+        if (rate && rate !== '') {
+            document.getElementById('sim-rate').value = parseFloat(rate).toFixed(2);
+        }
+
+        // Select dates mode
+        document.querySelector('input[name="sim-period-type"][value="dates"]').checked = true;
+        togglePeriodFields();
+
+        // Set dates
+        document.getElementById('sim-start-date').value = startDate || '';
+        document.getElementById('sim-end-date').value = endDate || '';
+
+        // Calculate days
+        calculateDaysFromDates();
+    }
+
+    function togglePeriodFields() {
+        const periodType = document.querySelector('input[name="sim-period-type"]:checked').value;
+        const dateFields = document.getElementById('sim-date-fields');
+        const daysFields = document.getElementById('sim-days-fields');
+
+        if (periodType === 'dates') {
+            dateFields.style.display = 'block';
+            daysFields.style.display = 'none';
+            calculateDaysFromDates();
+        } else {
+            dateFields.style.display = 'none';
+            daysFields.style.display = 'block';
+        }
+    }
+
+    function calculateDaysFromDates() {
+        const startStr = document.getElementById('sim-start-date').value;
+        const endStr = document.getElementById('sim-end-date').value;
+        const noteEl = document.getElementById('sim-calculated-days-note');
+        const daysInput = document.getElementById('sim-days');
+
+        if (startStr && endStr) {
+            const start = new Date(startStr);
+            const end = new Date(endStr);
+            const diffTime = end - start;
+            const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays >= 0) {
+                noteEl.innerText = `Período: ${diffDays} dias`;
+                noteEl.style.color = '#94a3b8';
+                daysInput.value = diffDays;
+            } else {
+                noteEl.innerText = 'Data final deve ser após a data inicial';
+                noteEl.style.color = '#ef4444';
+                daysInput.value = 0;
+            }
+        } else {
+            noteEl.innerText = 'Selecione as datas';
+            noteEl.style.color = '#94a3b8';
+        }
+    }
+
+    $(document).ready(function() {
+        $('#sim-lot').select2({
+            placeholder: "Selecione um Lote (Opcional)...",
+            allowClear: true,
+            width: '100%',
+            dropdownParent: $('#simulationModal'),
+            language: {
+                noResults: function () { return 'Nenhum resultado'; },
+                searching: function () { return 'Buscando...'; }
+            }
+        });
+
+        // Trigger onSimulationLotChange when select2 updates
+        $('#sim-lot').on('change', function() {
+            onSimulationLotChange(this);
+        });
+    });
+</script>

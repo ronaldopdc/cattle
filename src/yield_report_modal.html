@@ -1,0 +1,433 @@
+<!-- Yield Report Modal -->
+<div id="yieldReportModal"
+    style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7);">
+    <div
+        style="position: relative; margin: 3% auto; padding: 2rem; width: 1100px; max-width: 95%; max-height: 90vh; overflow-y: auto; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
+
+        <span onclick="closeYieldReportModal()"
+            style="position: absolute; right: 1.5rem; top: 1.5rem; font-size: 2rem; font-weight: bold; cursor: pointer; color: #94a3b8; transition: color 0.3s;">&times;</span>
+
+        <h2 style="margin-top: 0; color: #60a5fa; font-weight: 600; margin-bottom: 1.5rem;">Relatório de Rendimentos</h2>
+
+        <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: center; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 8px;">
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="color: #94a3b8; font-size: 0.85rem;">Data Inicial</label>
+                <input type="date" id="yrDateStart" style="padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderYieldReportTable()">
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="color: #94a3b8; font-size: 0.85rem;">Data Final</label>
+                <input type="date" id="yrDateEnd" style="padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderYieldReportTable()">
+            </div>
+            <div style="margin-top: 1.5rem;">
+                <button type="button" class="btn btn-primary" onclick="renderYieldReportTable()" style="padding: 7px 16px;">Filtrar</button>
+            </div>
+        </div>
+
+        <div id="yieldReportModalBody" style="color: #e2e8f0;">
+            <div style="overflow-x: auto;">
+                <table id="yieldReportTable" style="width: 100%; font-size: 0.9rem; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: rgba(255,255,255,0.05);">
+                            <th
+                                style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                D. Inicial</th>
+                            <th
+                                style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                D. Final</th>
+                            <th
+                                style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                Contrato</th>
+                            <th
+                                style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                Parceiro</th>
+                            <th
+                                style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                Saldo Principal</th>
+                            <th
+                                style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                Rendimento</th>
+                            <th
+                                style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                % Mensal</th>
+                            <th
+                                style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">
+                                Saldo Atualizado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="yieldReportTableBody">
+                        <!-- Content populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div
+            style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <button type="button" class="btn btn-secondary" onclick="exportYieldReportXLS()">
+                <i class="fas fa-file-excel"></i> Exportar XLS
+            </button>
+            <button type="button" class="btn btn-primary" onclick="closeYieldReportModal()">
+                Fechar
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function openYieldReportModal() {
+        const modal = document.getElementById('yieldReportModal');
+        
+        // Fill dates from dashboard if not already set
+        const dStart = document.getElementById('yrDateStart');
+        const dEnd = document.getElementById('yrDateEnd');
+        if (!dStart.value || !dEnd.value) {
+            if (document.getElementById('dashDateStart')) {
+                dStart.value = document.getElementById('dashDateStart').value;
+                dEnd.value = document.getElementById('dashDateEnd').value;
+            }
+        }
+        
+        renderYieldReportTable();
+        modal.style.display = 'block';
+    }
+
+    function renderYieldReportTable() {
+        const tbody = document.getElementById('yieldReportTableBody');
+        const startDate = document.getElementById('yrDateStart').value;
+        const endDate = document.getElementById('yrDateEnd').value;
+
+        // Filter and calculate visibility map: show balances only on the LAST entry of each partnership per month
+        const filteredData = yieldReportData.filter(row => {
+            return (!startDate || row.db_start_date >= startDate) && (!endDate || row.db_start_date <= endDate);
+        });
+
+        const lastRowMap = {};
+        filteredData.forEach((row, index) => {
+            const key = `${row.partnership_id}_${row.start_date.substring(3)}`;
+            lastRowMap[key] = index;
+        });
+
+        let html = '';
+        let grandYield = 0;
+        let grandPrincipalDays = 0;
+        let lastMonth = null;
+        let monthYield = 0;
+        let monthUncalibratedYield = 0;
+        let monthPrincipalDays = 0;
+        let monthBalance = 0;
+        const monthlyPercentagesForAvg = [];
+
+        filteredData.forEach((row, index) => {
+            const currentMonth = row.start_date.substring(3); // "mm/yyyy"
+
+            // Handle monthly subtotal
+            if (lastMonth && lastMonth !== currentMonth) {
+                const monthAvgPrincipal = monthPrincipalDays / 30;
+                const monthPctMensal = (monthAvgPrincipal > 0) ? (monthUncalibratedYield / monthAvgPrincipal) * 100 : 0;
+
+                html += `
+                    <tr style="background: rgba(255,255,255,0.03); font-weight: 600;">
+                        <td colspan="5" style="padding: 10px; color: #cbd5e1; text-align: right;">Subtotal ${lastMonth}:</td>
+                        <td style="padding: 10px; text-align: right; color: #10b981;">+ ${formatCurrency(monthYield)}</td>
+                        <td style="padding: 10px; text-align: right; color: #60a5fa;">${monthPctMensal.toFixed(2).replace('.', ',')}%</td>
+                        <td style="padding: 10px; text-align: right; color: #818cf8;">${formatCurrency(monthBalance)}</td>
+                    </tr>
+                `;
+                if (monthUncalibratedYield > 0.001) {
+                    monthlyPercentagesForAvg.push(monthPctMensal);
+                }
+
+                monthYield = 0;
+                monthUncalibratedYield = 0;
+                monthPrincipalDays = 0;
+                monthBalance = 0;
+            }
+
+            // Normalization: (uncalibrated_yield/principal) * (30/days) * 100
+            const rowPctMensal = (row.base_principal > 0 && row.days > 0)
+                ? (row.uncalibrated_yield / row.base_principal) * (30 / row.days) * 100
+                : 0;
+
+            const isLastOfContractInMonth = lastRowMap[`${row.partnership_id}_${currentMonth}`] === index;
+
+            html += `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+                    <td style="padding: 10px; color: #e2e8f0;">${row.start_date}</td>
+                    <td style="padding: 10px; color: #e2e8f0;">${row.end_date}</td>
+                    <td style="padding: 10px; color: #94a3b8;">#${row.partnership_id}</td>
+                    <td style="padding: 10px; color: #e2e8f0;">${row.owner_name}</td>
+                    <td style="padding: 10px; text-align: right; color: #e2e8f0;">${isLastOfContractInMonth ? formatCurrency(row.base_principal) : '-'}</td>
+                    <td style="padding: 10px; text-align: right; color: #10b981;">+ ${formatCurrency(row.yield)}</td>
+                    <td style="padding: 10px; text-align: right; color: #60a5fa;">${rowPctMensal.toFixed(2).replace('.', ',')}%</td>
+                    <td style="padding: 10px; text-align: right; color: #818cf8;">${isLastOfContractInMonth ? formatCurrency(row.current_balance) : '-'}</td>
+                </tr>
+            `;
+
+            monthYield += row.yield;
+            monthUncalibratedYield += row.uncalibrated_yield;
+            monthPrincipalDays += (row.base_principal * row.days);
+            if (isLastOfContractInMonth) {
+                monthBalance += row.current_balance;
+            }
+
+            grandYield += row.yield;
+            grandPrincipalDays += (row.base_principal * row.days);
+            lastMonth = currentMonth;
+
+            // Last row subtotal — use filteredData length
+            if (index === filteredData.length - 1) {
+                const monthAvgPrincipal = monthPrincipalDays / 30;
+                const monthPctMensal = (monthAvgPrincipal > 0) ? (monthUncalibratedYield / monthAvgPrincipal) * 100 : 0;
+
+                if (monthUncalibratedYield > 0.001) {
+                    monthlyPercentagesForAvg.push(monthPctMensal);
+                }
+
+                html += `
+                    <tr style="background: rgba(255,255,255,0.03); font-weight: 600;">
+                        <td colspan="5" style="padding: 10px; color: #cbd5e1; text-align: right;">Subtotal ${currentMonth}:</td>
+                        <td style="padding: 10px; text-align: right; color: #10b981;">+ ${formatCurrency(monthYield)}</td>
+                        <td style="padding: 10px; text-align: right; color: #60a5fa;">${monthPctMensal.toFixed(2).replace('.', ',')}%</td>
+                        <td style="padding: 10px; text-align: right; color: #818cf8;">${formatCurrency(monthBalance)}</td>
+                    </tr>
+                `;
+            }
+        });
+
+        const grandPctMensal = (monthlyPercentagesForAvg.length > 0)
+            ? monthlyPercentagesForAvg.reduce((a, b) => a + b, 0) / monthlyPercentagesForAvg.length
+            : 0;
+
+        if (filteredData.length === 0) {
+            html = '<tr><td colspan="8" style="padding: 2rem; text-align: center; color: #64748b;">Nenhum rendimento registrado no período selecionado.</td></tr>';
+        } else {
+            // --- SUMMARY: Total per Contract (Filtered) ---
+            const contractTotals = {};
+            filteredData.forEach(row => {
+                const key = `${row.partnership_id}|${row.owner_name}`;
+                if (!contractTotals[key]) contractTotals[key] = 0;
+                contractTotals[key] += row.yield;
+            });
+
+            html += `
+                <tr style="border-top: 2px solid rgba(255,255,255,0.1);">
+                    <td colspan="8" style="padding: 12px 10px 4px; color: #60a5fa; font-weight: 700; font-size: 0.95rem;">Resumo por Contrato:</td>
+                </tr>
+            `;
+            Object.entries(contractTotals).forEach(([key, total]) => {
+                const [pid, owner] = key.split('|');
+                const avgRate = total / grandYield * grandPctMensal;
+                html += `
+                    <tr style="background: rgba(255,255,255,0.02);">
+                        <td style="padding: 8px 10px; color: #94a3b8;">#${pid}</td>
+                        <td colspan="3" style="padding: 8px 10px; color: #e2e8f0;">${owner}</td>
+                        <td style="padding: 8px 10px;"></td>
+                        <td style="padding: 8px 10px; text-align: right; color: #10b981; font-weight: 600;">+ ${formatCurrency(total)}</td>
+                        <td colspan="2" style="padding: 8px 10px;"></td>
+                    </tr>
+                `;
+            });
+
+            // Grand Total Footer
+            html += `
+                <tr style="border-top: 2px solid rgba(255,255,255,0.1); background: rgba(96, 165, 250, 0.05); font-size: 1rem; font-weight: 700;">
+                    <td colspan="5" style="padding: 15px; color: #60a5fa; text-align: right;">TOTAL GERAL DO PERÍODO:</td>
+                    <td style="padding: 15px; text-align: right; color: #10b981;">+ ${formatCurrency(grandYield)}</td>
+                    <td style="padding: 15px; text-align: right; color: #60a5fa;">${grandPctMensal.toFixed(2).replace('.', ',')}%</td>
+                    <td style="padding: 15px; text-align: right; color: #818cf8;">-</td>
+                </tr>
+            `;
+        }
+
+        tbody.innerHTML = html;
+    }
+
+    function closeYieldReportModal() {
+        document.getElementById('yieldReportModal').style.display = 'none';
+    }
+
+    function exportYieldReportXLS() {
+        const startDate = document.getElementById('yrDateStart').value;
+        const endDate = document.getElementById('yrDateEnd').value;
+
+        const filteredData = yieldReportData.filter(row => {
+            return (!startDate || row.db_start_date >= startDate) && (!endDate || row.db_start_date <= endDate);
+        });
+
+        const lastRowMap = {};
+        filteredData.forEach((row, index) => {
+            const key = `${row.partnership_id}_${row.start_date.substring(3)}`;
+            lastRowMap[key] = index;
+        });
+
+        let html = `
+            <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    table { border-collapse: collapse; width: 100%; }
+                    th, td { border: 1px solid #000; padding: 5px; }
+                    .header { background-color: #f0f0f0; font-weight: bold; }
+                    .subtotal { background-color: #fafafa; font-weight: bold; }
+                    .total { background-color: #e2e8f0; font-weight: bold; font-size: 1.1em; }
+                </style>
+            </head>
+            <body>
+                <h2>Relatório de Rendimentos Mensais</h2>
+                <p>Período: ${startDate ? startDate.split('-').reverse().join('/') : '-'} a ${endDate ? endDate.split('-').reverse().join('/') : '-'}</p>
+                <br>
+                <table>
+                    <thead>
+                        <tr class="header">
+                            <th>Data Inicial</th>
+                            <th>Data Final</th>
+                            <th>Contrato</th>
+                            <th>Parceiro</th>
+                            <th>Saldo Principal</th>
+                            <th>Rendimento</th>
+                            <th>% Mensal</th>
+                            <th>Saldo Atualizado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        let grandYield = 0;
+        let grandPrincipalDays = 0;
+        let lastMonth = null;
+        let monthYield = 0;
+        let monthUncalibratedYield = 0;
+        let monthPrincipalDays = 0;
+        let monthBalance = 0;
+        const monthlyPercentagesForAvg = [];
+
+        filteredData.forEach((row, index) => {
+            const currentMonth = row.start_date.substring(3);
+
+            if (lastMonth && lastMonth !== currentMonth) {
+                const monthAvgPrincipal = monthPrincipalDays / 30;
+                const monthPctMensal = (monthAvgPrincipal > 0) ? (monthUncalibratedYield / monthAvgPrincipal) * 100 : 0;
+
+                html += `
+                    <tr class="subtotal">
+                        <td colspan="5" style="text-align: right;">Subtotal ${lastMonth}:</td>
+                        <td style="text-align: right;">${monthYield.toFixed(2).replace('.', ',')}</td>
+                        <td style="text-align: right;">${monthPctMensal.toFixed(2).replace('.', ',')}%</td>
+                        <td style="text-align: right;">${monthBalance.toFixed(2).replace('.', ',')}</td>
+                    </tr>
+                `;
+                if (monthUncalibratedYield > 0.001) {
+                    monthlyPercentagesForAvg.push(monthPctMensal);
+                }
+
+                monthYield = 0;
+                monthUncalibratedYield = 0;
+                monthPrincipalDays = 0;
+                monthBalance = 0;
+            }
+
+            const rowPctMensal = (row.base_principal > 0 && row.days > 0)
+                ? (row.uncalibrated_yield / row.base_principal) * (30 / row.days) * 100
+                : 0;
+
+            const isLastOfContractInMonth = lastRowMap[`${row.partnership_id}_${currentMonth}`] === index;
+
+            html += `
+                <tr>
+                    <td>${row.start_date}</td>
+                    <td>${row.end_date}</td>
+                    <td>#${row.partnership_id}</td>
+                    <td>${row.owner_name}</td>
+                    <td>${isLastOfContractInMonth ? row.base_principal.toFixed(2).replace('.', ',') : '-'}</td>
+                    <td>${row.yield.toFixed(2).replace('.', ',')}</td>
+                    <td>${rowPctMensal.toFixed(2).replace('.', ',')}%</td>
+                    <td>${isLastOfContractInMonth ? row.current_balance.toFixed(2).replace('.', ',') : '-'}</td>
+                </tr>
+            `;
+
+            monthYield += row.yield;
+            monthUncalibratedYield += row.uncalibrated_yield;
+            monthPrincipalDays += (row.base_principal * row.days);
+            if (isLastOfContractInMonth) {
+                monthBalance += row.current_balance;
+            }
+
+            grandYield += row.yield;
+            grandPrincipalDays += (row.base_principal * row.days);
+            lastMonth = currentMonth;
+
+            if (index === yieldReportData.length - 1) {
+                const monthAvgPrincipal = monthPrincipalDays / 30;
+                const monthPctMensal = (monthAvgPrincipal > 0) ? (monthUncalibratedYield / monthAvgPrincipal) * 100 : 0;
+
+                if (monthUncalibratedYield > 0.001) {
+                    monthlyPercentagesForAvg.push(monthPctMensal);
+                }
+
+                html += `
+                    <tr class="subtotal">
+                        <td colspan="5" style="text-align: right;">Subtotal ${currentMonth}:</td>
+                        <td style="text-align: right;">${monthYield.toFixed(2).replace('.', ',')}</td>
+                        <td style="text-align: right;">${monthPctMensal.toFixed(2).replace('.', ',')}%</td>
+                        <td style="text-align: right;">${monthBalance.toFixed(2).replace('.', ',')}</td>
+                    </tr>
+                `;
+            }
+        });
+
+        const grandPctMensal = (monthlyPercentagesForAvg.length > 0)
+            ? monthlyPercentagesForAvg.reduce((a, b) => a + b, 0) / monthlyPercentagesForAvg.length
+            : 0;
+        const contractTotalsXLS = {};
+        filteredData.forEach(row => {
+            const key = `${row.partnership_id}|${row.owner_name}`;
+            if (!contractTotalsXLS[key]) contractTotalsXLS[key] = 0;
+            contractTotalsXLS[key] += row.yield;
+        });
+
+        html += `
+                <tr class="header">
+                    <td colspan="8" style="text-align: left;">Resumo por Contrato:</td>
+                </tr>
+            `;
+        Object.entries(contractTotalsXLS).forEach(([key, total]) => {
+            const [pid, owner] = key.split('|');
+            html += `
+                    <tr>
+                        <td>#${pid}</td>
+                        <td colspan="3">${owner}</td>
+                        <td></td>
+                        <td style="text-align: right;">${total.toFixed(2).replace('.', ',')}</td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                `;
+        });
+
+        html += `
+                <tr class="total">
+                    <td colspan="5" style="text-align: right;">TOTAL GERAL:</td>
+                    <td style="text-align: right;">${grandYield.toFixed(2).replace('.', ',')}</td>
+                    <td style="text-align: right;">${grandPctMensal.toFixed(2).replace('.', ',')}%</td>
+                    <td>-</td>
+                </tr>
+            `;
+
+        html += `</tbody></table></body></html>`;
+
+        const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `relatorio_rendimentos.xls`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    if (typeof formatCurrency !== 'function') {
+        function formatCurrency(value) {
+            return parseFloat(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+    }
+</script>
