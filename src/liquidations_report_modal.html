@@ -1,0 +1,343 @@
+<!-- Liquidations Report Modal -->
+<style>
+    .report-filter-bar label {
+        margin: 0;
+    }
+
+    .report-filter-bar input,
+    .report-filter-bar select {
+        box-sizing: border-box;
+        height: 37px;
+        margin: 0;
+    }
+
+    .report-filter-action {
+        align-self: flex-end;
+    }
+</style>
+<div id="liquidationsReportModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7);">
+    <div style="position: relative; margin: 2% auto; padding: 2rem; width: 1400px; max-width: 98vw; max-height: 90vh; overflow-y: auto; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
+        <span onclick="closeLiquidationsReportModal()" style="position: absolute; right: 1.5rem; top: 1.5rem; font-size: 2rem; font-weight: bold; cursor: pointer; color: #94a3b8; transition: color 0.3s;">&times;</span>
+
+        <h2 style="margin-top: 0; color: #34d399; font-weight: 600; margin-bottom: 1.5rem;">Relat&oacute;rio de Liquida&ccedil;&otilde;es</h2>
+
+        <div class="report-filter-bar" style="display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; align-items: flex-end; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 8px;">
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="color: #94a3b8; font-size: 0.85rem;">Data Inicial</label>
+                <input type="date" id="liqReportDateStart" style="padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderLiquidationsReportTable()">
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="color: #94a3b8; font-size: 0.85rem;">Data Final</label>
+                <input type="date" id="liqReportDateEnd" style="padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderLiquidationsReportTable()">
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="color: #94a3b8; font-size: 0.85rem;">Parceiro Propriet&aacute;rio</label>
+                <select id="liqReportOwner" style="width: 220px; padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderLiquidationsReportTable()">
+                    <option value="all">Todos</option>
+                </select>
+            </div>
+            <?php if (($userRole ?? '') === 'admin'): ?>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <label style="color: #94a3b8; font-size: 0.85rem;">Parceiro Investidor</label>
+                    <select id="liqReportInvestor" style="width: 220px; padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderLiquidationsReportTable()">
+                        <option value="all">Todos</option>
+                    </select>
+                </div>
+            <?php endif; ?>
+            <div class="report-filter-action">
+                <button type="button" class="btn btn-primary" onclick="renderLiquidationsReportTable()" style="height: 37px; padding: 0 16px; margin: 0;">Filtrar</button>
+            </div>
+        </div>
+
+        <div style="color: #e2e8f0;">
+            <div style="overflow-x: auto;">
+                <table id="liquidationsReportTable" style="width: 100%; font-size: 0.9rem; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: rgba(255,255,255,0.05);">
+                            <th style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Data</th>
+                            <th style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Contrato</th>
+                            <th style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Lote</th>
+                            <th style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Propriet&aacute;rio</th>
+                            <th style="padding: 10px; text-align: left; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Investidor</th>
+                            <th style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Principal (R$)</th>
+                            <th style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Rendimento (R$)</th>
+                            <th style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Total (R$)</th>
+                            <th style="padding: 10px; text-align: right; color: #cbd5e1; font-weight: 500; border-bottom: 2px solid rgba(255,255,255,0.1);">Qtd</th>
+                        </tr>
+                    </thead>
+                    <tbody id="liquidationsReportTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <button type="button" class="btn btn-secondary" onclick="exportLiquidationsReportPDF()">
+                <i class="fas fa-file-pdf"></i> Exportar PDF
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="exportLiquidationsReportXLS()">
+                <i class="fas fa-file-excel"></i> Exportar XLS
+            </button>
+            <button type="button" class="btn btn-primary" onclick="closeLiquidationsReportModal()">Fechar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    if (typeof formatCurrency !== 'function') {
+        function formatCurrency(value) {
+            return parseFloat(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        }
+    }
+
+    function escapeLiquidationHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, function (char) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char];
+        });
+    }
+
+    function formatLiquidationNumber(value) {
+        return parseFloat(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function populateLiquidationReportPartners() {
+        const ownerSelect = document.getElementById('liqReportOwner');
+        const investorSelect = document.getElementById('liqReportInvestor');
+        if (ownerSelect.dataset.loaded === '1' && (!investorSelect || investorSelect.dataset.loaded === '1')) return;
+
+        const owners = {};
+        const investors = {};
+        tblLiquidationReportData.forEach(row => {
+            if (row.owner_id) owners[row.owner_id] = row.owner_name;
+            if (investorSelect && row.investor_id) investors[row.investor_id] = row.investor_name;
+        });
+
+        Object.entries(owners).sort((a, b) => a[1].localeCompare(b[1])).forEach(([id, name]) => {
+            ownerSelect.insertAdjacentHTML('beforeend', `<option value="${escapeLiquidationHtml(id)}">${escapeLiquidationHtml(name)}</option>`);
+        });
+        if (investorSelect) {
+            Object.entries(investors).sort((a, b) => a[1].localeCompare(b[1])).forEach(([id, name]) => {
+                investorSelect.insertAdjacentHTML('beforeend', `<option value="${escapeLiquidationHtml(id)}">${escapeLiquidationHtml(name)}</option>`);
+            });
+            investorSelect.dataset.loaded = '1';
+        }
+
+        ownerSelect.dataset.loaded = '1';
+    }
+
+    function openLiquidationsReportModal() {
+        populateLiquidationReportPartners();
+        document.getElementById('liqReportDateStart').value = document.getElementById('dashDateStart').value;
+        document.getElementById('liqReportDateEnd').value = document.getElementById('dashDateEnd').value;
+        renderLiquidationsReportTable();
+        document.getElementById('liquidationsReportModal').style.display = 'block';
+    }
+
+    function closeLiquidationsReportModal() {
+        document.getElementById('liquidationsReportModal').style.display = 'none';
+    }
+
+    function getFilteredLiquidationReportData() {
+        const dStart = document.getElementById('liqReportDateStart').value;
+        const dEnd = document.getElementById('liqReportDateEnd').value;
+        const ownerId = document.getElementById('liqReportOwner').value;
+        const investorSelect = document.getElementById('liqReportInvestor');
+        const investorId = investorSelect ? investorSelect.value : 'all';
+
+        return tblLiquidationReportData.filter(row => {
+            if (dStart && row.date < dStart) return false;
+            if (dEnd && row.date > dEnd) return false;
+            if (ownerId !== 'all' && String(row.owner_id) !== ownerId) return false;
+            if (investorId !== 'all' && String(row.investor_id) !== investorId) return false;
+            return true;
+        });
+    }
+
+    function renderLiquidationsReportTable() {
+        const tbody = document.getElementById('liquidationsReportTableBody');
+        const rows = getFilteredLiquidationReportData();
+        let html = '';
+        let totalPrincipal = 0;
+        let totalInterest = 0;
+        let totalAmount = 0;
+        let totalQuantity = 0;
+
+        if (rows.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="9" style="padding: 2rem; text-align: center; color: #64748b;">Nenhuma liquida&ccedil;&atilde;o encontrada para os filtros informados.</td></tr>`;
+            return;
+        }
+
+        rows.forEach(row => {
+            const principal = parseFloat(row.amount_principal || 0);
+            const interest = parseFloat(row.amount_interest || 0);
+            const amount = parseFloat(row.amount_total || 0);
+            const quantity = parseInt(row.quantity || 0, 10);
+
+            totalPrincipal += principal;
+            totalInterest += interest;
+            totalAmount += amount;
+            totalQuantity += quantity;
+
+            html += `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+                    <td style="padding: 10px; color: #e2e8f0;">${escapeLiquidationHtml(row.formatted_date)}</td>
+                    <td style="padding: 10px; color: #94a3b8;">#${escapeLiquidationHtml(row.partnership_id)}</td>
+                    <td style="padding: 10px; color: #94a3b8;">${escapeLiquidationHtml(row.lot_numbers || '-')}</td>
+                    <td style="padding: 10px; color: #e2e8f0;">${escapeLiquidationHtml(row.owner_name)}</td>
+                    <td style="padding: 10px; color: #e2e8f0;">${escapeLiquidationHtml(row.investor_name)}</td>
+                    <td style="padding: 10px; text-align: right; color: #cbd5e1;">${formatCurrency(principal)}</td>
+                    <td style="padding: 10px; text-align: right; color: #fbbf24;">${formatCurrency(interest)}</td>
+                    <td style="padding: 10px; text-align: right; color: #34d399; font-weight: 600;">${formatCurrency(amount)}</td>
+                    <td style="padding: 10px; text-align: right; color: #818cf8;">${quantity > 0 ? quantity : '-'}</td>
+                </tr>
+            `;
+        });
+
+        html += `
+            <tr style="border-top: 2px solid rgba(255,255,255,0.1); background: rgba(52, 211, 153, 0.05); font-size: 1rem; font-weight: 700;">
+                <td colspan="5" style="padding: 15px; color: #34d399; text-align: right;">TOTAL:</td>
+                <td style="padding: 15px; text-align: right; color: #cbd5e1;">${formatCurrency(totalPrincipal)}</td>
+                <td style="padding: 15px; text-align: right; color: #fbbf24;">${formatCurrency(totalInterest)}</td>
+                <td style="padding: 15px; text-align: right; color: #34d399;">${formatCurrency(totalAmount)}</td>
+                <td style="padding: 15px; text-align: right; color: #818cf8;">${totalQuantity > 0 ? totalQuantity : '-'}</td>
+            </tr>
+        `;
+
+        tbody.innerHTML = html;
+    }
+
+    function buildLiquidationsReportExportTable() {
+        const rows = getFilteredLiquidationReportData();
+        const dStart = document.getElementById('liqReportDateStart').value;
+        const dEnd = document.getElementById('liqReportDateEnd').value;
+        const ownerText = document.getElementById('liqReportOwner').selectedOptions[0].text;
+        const investorSelect = document.getElementById('liqReportInvestor');
+        const investorText = investorSelect ? investorSelect.selectedOptions[0].text : 'Todos';
+        const logoUrl = new URL('assets/logo.png', window.location.href).href;
+        let totalPrincipal = 0;
+        let totalInterest = 0;
+        let totalAmount = 0;
+        let totalQuantity = 0;
+
+        let html = `
+            <div class="report-header">
+                <img src="${logoUrl}" alt="Cattle Invest" class="report-logo">
+                <div>
+                    <h2>Relat&oacute;rio de Liquida&ccedil;&otilde;es</h2>
+                    <p>Per&iacute;odo: ${(dStart || '').split('-').reverse().join('/')} a ${(dEnd || '').split('-').reverse().join('/')}</p>
+                    <p>Propriet&aacute;rio: ${escapeLiquidationHtml(ownerText)} | Investidor: ${escapeLiquidationHtml(investorText)}</p>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Contrato</th>
+                        <th>Lote</th>
+                        <th>Propriet&aacute;rio</th>
+                        <th>Investidor</th>
+                        <th>Principal (R$)</th>
+                        <th>Rendimento (R$)</th>
+                        <th>Total (R$)</th>
+                        <th>Qtd</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        rows.forEach(row => {
+            const principal = parseFloat(row.amount_principal || 0);
+            const interest = parseFloat(row.amount_interest || 0);
+            const amount = parseFloat(row.amount_total || 0);
+            const quantity = parseInt(row.quantity || 0, 10);
+            totalPrincipal += principal;
+            totalInterest += interest;
+            totalAmount += amount;
+            totalQuantity += quantity;
+
+            html += `
+                <tr>
+                    <td>${escapeLiquidationHtml(row.formatted_date)}</td>
+                    <td>#${escapeLiquidationHtml(row.partnership_id)}</td>
+                    <td>${escapeLiquidationHtml(row.lot_numbers || '-')}</td>
+                    <td>${escapeLiquidationHtml(row.owner_name)}</td>
+                    <td>${escapeLiquidationHtml(row.investor_name)}</td>
+                    <td class="number">${formatLiquidationNumber(principal)}</td>
+                    <td class="number">${formatLiquidationNumber(interest)}</td>
+                    <td class="number">${formatLiquidationNumber(amount)}</td>
+                    <td class="number">${quantity > 0 ? quantity : '-'}</td>
+                </tr>
+            `;
+        });
+
+        html += `
+                <tr class="total">
+                    <td colspan="5">TOTAL</td>
+                    <td class="number">${formatLiquidationNumber(totalPrincipal)}</td>
+                    <td class="number">${formatLiquidationNumber(totalInterest)}</td>
+                    <td class="number">${formatLiquidationNumber(totalAmount)}</td>
+                    <td class="number">${totalQuantity > 0 ? totalQuantity : '-'}</td>
+                </tr>
+            </tbody></table>
+        `;
+
+        return html;
+    }
+
+    function exportLiquidationsReportPDF() {
+        const content = buildLiquidationsReportExportTable();
+        const win = window.open('', '_blank');
+        win.document.write(`
+            <html>
+                <head>
+                    <title>Relat&oacute;rio de Liquida&ccedil;&otilde;es</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; color: #111827; }
+                        .report-header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
+                        .report-logo { height: 58px; width: auto; }
+                        .report-header h2 { margin: 0 0 8px; }
+                        .report-header p { margin: 2px 0; }
+                        table { border-collapse: collapse; width: 100%; font-size: 12px; }
+                        th, td { border: 1px solid #d1d5db; padding: 6px; }
+                        th { background: #f3f4f6; }
+                        .number { text-align: right; }
+                        .total { background: #ecfdf5; font-weight: bold; }
+                    </style>
+                </head>
+                <body>${content}</body>
+            </html>
+        `);
+        win.document.close();
+        win.focus();
+        win.print();
+    }
+
+    function exportLiquidationsReportXLS() {
+        const html = `
+            <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        table { border-collapse: collapse; width: 100%; }
+                        .report-header { margin-bottom: 18px; }
+                        .report-logo { height: 58px; width: auto; }
+                        th, td { border: 1px solid #000; padding: 5px; }
+                        th { background-color: #f0f0f0; font-weight: bold; }
+                        .number { text-align: right; }
+                        .total { background-color: #e2e8f0; font-weight: bold; text-align: right; }
+                    </style>
+                </head>
+                <body>${buildLiquidationsReportExportTable()}</body>
+            </html>
+        `;
+
+        const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'relatorio_liquidacoes.xls';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+</script>

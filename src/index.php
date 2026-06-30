@@ -151,6 +151,9 @@ $showSlaughterInvestor = $userRole === 'admin' && ($selectedPartnerId ?? 'all') 
                             <option value="20">20</option>
                             <option value="50">50</option>
                         </select>
+                        <button onclick="openUpcomingSlaughterReportModal()" class="btn" style="padding: 4px 10px; font-size: 0.75rem; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.2); color: #fbbf24;">
+                            <i class="fas fa-file-alt"></i> Relat&oacute;rio
+                        </button>
                     </div>
                 </div>
                 <div id="upcoming-container" style="overflow-x: auto; overflow-y: hidden; transition: all 0.3s ease;">
@@ -201,6 +204,9 @@ $showSlaughterInvestor = $userRole === 'admin' && ($selectedPartnerId ?? 'all') 
                         </select>
                         <button onclick="openCashFlowModal()" class="btn" style="padding: 4px 10px; font-size: 0.75rem; background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.2); color: #34d399;">
                             <i class="fas fa-book"></i> Livro Caixa
+                        </button>
+                        <button onclick="openLiquidationsReportModal()" class="btn" style="padding: 4px 10px; font-size: 0.75rem; background: rgba(96, 165, 250, 0.1); border: 1px solid rgba(96, 165, 250, 0.2); color: #60a5fa;">
+                            <i class="fas fa-file-invoice-dollar"></i> Liquida&ccedil;&otilde;es
                         </button>
                     </div>
                 </div>
@@ -564,9 +570,13 @@ $showSlaughterInvestor = $userRole === 'admin' && ($selectedPartnerId ?? 'all') 
 
         // Initialize Cash Flow Data
         const tblCashFlowData = <?= json_encode($cash_flow_data) ?>;
+        const tblLiquidationReportData = <?= json_encode($liquidation_report_data) ?>;
+        const tblUpcomingSlaughterReportData = <?= json_encode($upcoming_slaughter_report_data) ?>;
     </script>
     <?php include 'yield_report_modal.html'; ?>
     <?php include 'cash_flow_report_modal.html'; ?>
+    <?php include 'liquidations_report_modal.html'; ?>
+    <?php include 'upcoming_slaughter_report_modal.html'; ?>
 </body>
 
 </html>

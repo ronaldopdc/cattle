@@ -60,10 +60,35 @@ $stmt = $pdo->prepare("
 $stmt->execute($params);
 $partnerships = $stmt->fetchAll();
 
+$reportWhereClause = $userRole === 'admin' ? "1=1" : $whereClause;
+$reportParams = $userRole === 'admin' ? [] : $params;
+$stmtReport = $pdo->prepare("
+    SELECT p.*, own.name as owner_name, own.cpf as owner_cpf, inv.name as investor_name,
+           conf.name as confinement_name, conf.cpf as confinement_cpf
+    FROM partnerships p
+    JOIN partners own ON p.owner_id = own.id
+    JOIN partners inv ON p.investor_id = inv.id
+    LEFT JOIN partners conf ON p.confinamento_id = conf.id
+    WHERE $reportWhereClause
+");
+$stmtReport->execute($reportParams);
+$reportPartnerships = $stmtReport->fetchAll();
+
 // Build the cash-flow display name (owner name + CPF). When the same partner is
 // both owner and investor, show the confinamento (name + CPF) instead, per
 // business rule for the Livro Caixa report.
 foreach ($partnerships as &$p) {
+    $cfName = $p['owner_name'];
+    $cfCpf = $p['owner_cpf'] ?? '';
+    if (!empty($p['owner_id']) && !empty($p['investor_id']) && $p['owner_id'] == $p['investor_id'] && !empty($p['confinamento_id'])) {
+        $cfName = $p['confinement_name'];
+        $cfCpf = $p['confinement_cpf'] ?? '';
+    }
+    $p['cash_flow_name'] = trim($cfCpf) !== '' ? ($cfName . ' (' . $cfCpf . ')') : $cfName;
+}
+unset($p);
+
+foreach ($reportPartnerships as &$p) {
     $cfName = $p['owner_name'];
     $cfCpf = $p['owner_cpf'] ?? '';
     if (!empty($p['owner_id']) && !empty($p['investor_id']) && $p['owner_id'] == $p['investor_id'] && !empty($p['confinamento_id'])) {
@@ -131,6 +156,8 @@ for ($i = 1; $i < count($history_dates); $i++) {
 $pie_chart_array = []; // Owner -> Value
 $yield_report_data = []; // Detailed records for modal
 $cash_flow_data = []; // Detailed cash flow entries
+$liquidation_report_data = []; // Detailed liquidation report entries
+$upcoming_slaughter_report_data = []; // Future slaughter report entries
 $upcoming_lots = [];
 $recent_liquidations_list = [];
 
@@ -156,6 +183,8 @@ foreach ($allAllocations as $alloc) {
 }
 $yield_report_data = []; // Detailed records for modal
 $cash_flow_data = []; // Detailed cash flow entries
+$liquidation_report_data = []; // Detailed liquidation report entries
+$upcoming_slaughter_report_data = []; // Future slaughter report entries
 $upcoming_lots = [];
 $recent_liquidations_list = [];
 
@@ -444,6 +473,19 @@ foreach ($partnerships as $p) {
                     continue;
                 }
 
+                $upcoming_slaughter_report_data[] = [
+                    'date' => $lot['slaughter_date'],
+                    'formatted_date' => date('d/m/Y', strtotime($lot['slaughter_date'])),
+                    'partnership_id' => $p['id'],
+                    'owner_id' => $p['owner_id'],
+                    'owner_name' => $p['owner_name'],
+                    'investor_id' => $p['investor_id'],
+                    'investor_name' => $p['investor_name'],
+                    'lot_numbers' => $lot['lot_number'],
+                    'current_balance' => $lot_current_value,
+                    'quantity' => $remHead
+                ];
+
                 $groupKey = $p['id'] . '_' . $lot['slaughter_date'];
                 if (!isset($upcoming_lots[$groupKey])) {
                     $upcoming_lots[$groupKey] = [
@@ -498,6 +540,27 @@ foreach ($partnerships as $p) {
             'value_out' => 0,
             'cattle_in' => 0,
             'cattle_out' => $estimated_q
+        ];
+
+        if (!empty($liq['lot_id']) && isset($lotNumberById[$liq['lot_id']])) {
+            $reportLotNumbers = $lotNumberById[$liq['lot_id']];
+        } else {
+            $reportLotNumbers = implode(', ', array_unique(array_column($lots, 'lot_number')));
+        }
+
+        $liquidation_report_data[] = [
+            'date' => $liq['date'],
+            'formatted_date' => date('d/m/Y', strtotime($liq['date'])),
+            'partnership_id' => $p['id'],
+            'owner_id' => $p['owner_id'],
+            'owner_name' => $p['owner_name'],
+            'investor_id' => $p['investor_id'],
+            'investor_name' => $p['investor_name'],
+            'lot_numbers' => $reportLotNumbers,
+            'amount_principal' => floatval($liq['amount_principal']),
+            'amount_interest' => floatval($liq['amount_interest']),
+            'amount_total' => floatval($liq['amount_total']),
+            'quantity' => $estimated_q
         ];
     }
     $global_total_liquidated_amount += $total_liquidated_amount_up_to_end;
@@ -845,9 +908,148 @@ foreach ($yield_report_data as &$row) {
 }
 unset($row);
 
+// Rebuild modal report datasets from their own access scope. For admins this
+// deliberately ignores the dashboard partner filter, so modal filters can work
+// across every partnership the admin can see.
+$liquidation_report_data = [];
+$upcoming_slaughter_report_data = [];
+$todayReportDate = date('Y-m-d');
+
+foreach ($reportPartnerships as $reportP) {
+    $reportLiquidations = $partnershipLiquidations[$reportP['id']] ?? [];
+    $reportLots = $partnershipLots[$reportP['id']] ?? [];
+
+    $reportLotNumberById = [];
+    foreach ($reportLots as $reportLot) {
+        $reportLotNumberById[$reportLot['lot_id']] = $reportLot['lot_number'];
+    }
+
+    $reportInitialCattleCount = 0;
+    $reportHeadLots = [];
+    foreach ($reportLots as $reportLot) {
+        $projected = floatval($reportLot['projected_value']);
+        $monthsTotal = calculateMonthsBetween($reportP['start_date'], $reportLot['slaughter_date']);
+        if ($monthsTotal <= 0) $monthsTotal = 0.0001;
+        $rate = floatval($reportLot['monthly_rate']);
+        $allocatedAmount = $projected / pow((1 + $rate / 100), $monthsTotal);
+
+        $weightArrobas = (floatval($reportLot['protocol_weight']) * intval($reportLot['animal_count'])) / 30;
+        $totalValue = $weightArrobas * floatval($reportLot['indexed_price']);
+        $maxAdvance = $totalValue * (floatval($reportLot['max_advance_percent']) / 100);
+
+        $allocatedAnimals = 0;
+        if ($maxAdvance > 0) {
+            $totalLotPrincipal = $lotTotalPrincipalMap[$reportLot['lot_id']] ?? $allocatedAmount;
+            if ($totalLotPrincipal <= 0) $totalLotPrincipal = $allocatedAmount;
+            $fraction = $totalLotPrincipal > 0 ? ($allocatedAmount / $totalLotPrincipal) : 0;
+            $allocatedAnimals = round(intval($reportLot['animal_count']) * $fraction);
+            $reportInitialCattleCount += $allocatedAnimals;
+        }
+
+        $reportHeadLots[] = [
+            'lot_id' => $reportLot['lot_id'],
+            'slaughter_date' => $reportLot['slaughter_date'],
+            'allocated_amount' => $allocatedAmount,
+            'allocated_animals' => $allocatedAnimals,
+        ];
+    }
+
+    $reportAveragePrincipalPerAnimal = $reportInitialCattleCount > 0
+        ? floatval($reportP['total_value']) / $reportInitialCattleCount
+        : 0;
+
+    $reportCumulativeEstimatedPrincipal = 0;
+    $reportCumulativeEstimatedCattle = 0;
+    foreach ($reportLiquidations as $reportLiq) {
+        $reportQuantity = intval($reportLiq['quantity'] ?? 0);
+        if ($reportQuantity <= 0 && $reportAveragePrincipalPerAnimal > 0 && floatval($reportLiq['amount_principal']) > 0) {
+            $reportCumulativeEstimatedPrincipal += floatval($reportLiq['amount_principal']);
+            $newCumulativeCattle = round($reportCumulativeEstimatedPrincipal / $reportAveragePrincipalPerAnimal);
+            $reportQuantity = $newCumulativeCattle - $reportCumulativeEstimatedCattle;
+            $reportCumulativeEstimatedCattle = $newCumulativeCattle;
+        }
+
+        $reportLotNumbers = (!empty($reportLiq['lot_id']) && isset($reportLotNumberById[$reportLiq['lot_id']]))
+            ? $reportLotNumberById[$reportLiq['lot_id']]
+            : implode(', ', array_unique(array_column($reportLots, 'lot_number')));
+
+        $liquidation_report_data[] = [
+            'date' => $reportLiq['date'],
+            'formatted_date' => date('d/m/Y', strtotime($reportLiq['date'])),
+            'partnership_id' => $reportP['id'],
+            'owner_id' => $reportP['owner_id'],
+            'owner_name' => $reportP['owner_name'],
+            'investor_id' => $reportP['investor_id'],
+            'investor_name' => $reportP['investor_name'],
+            'lot_numbers' => $reportLotNumbers,
+            'amount_principal' => floatval($reportLiq['amount_principal']),
+            'amount_interest' => floatval($reportLiq['amount_interest']),
+            'amount_total' => floatval($reportLiq['amount_total']),
+            'quantity' => $reportQuantity
+        ];
+    }
+
+    $reportCurrentState = calculatePartnershipState($reportP, $reportLots, $reportLiquidations, $todayReportDate);
+    $reportCurrentBalance = max(0, floatval($reportCurrentState['current_balance']));
+    if ($reportCurrentBalance < 0.01 || empty($reportLots)) {
+        continue;
+    }
+
+    $reportHeadBalanceMap = computeLotHeadBalances($reportHeadLots, $reportLiquidations, $todayReportDate, $reportAveragePrincipalPerAnimal);
+    $reportTotalRemainingHead = 0;
+    $reportRemainingHeadByLot = [];
+    foreach ($reportLots as $reportLot) {
+        $remainingHead = isset($reportHeadBalanceMap[$reportLot['lot_id']])
+            ? intval($reportHeadBalanceMap[$reportLot['lot_id']]['balance_animals'])
+            : 0;
+        $reportRemainingHeadByLot[$reportLot['lot_id']] = $remainingHead;
+        $reportTotalRemainingHead += $remainingHead;
+    }
+
+    foreach ($reportLots as $reportLot) {
+        $remainingHead = $reportRemainingHeadByLot[$reportLot['lot_id']] ?? 0;
+        $lotCurrentValue = ($reportTotalRemainingHead > 0)
+            ? $reportCurrentBalance * ($remainingHead / $reportTotalRemainingHead)
+            : 0;
+
+        if ($lotCurrentValue < 0.01) {
+            continue;
+        }
+
+        $upcoming_slaughter_report_data[] = [
+            'date' => $reportLot['slaughter_date'],
+            'formatted_date' => date('d/m/Y', strtotime($reportLot['slaughter_date'])),
+            'partnership_id' => $reportP['id'],
+            'owner_id' => $reportP['owner_id'],
+            'owner_name' => $reportP['owner_name'],
+            'investor_id' => $reportP['investor_id'],
+            'investor_name' => $reportP['investor_name'],
+            'lot_numbers' => $reportLot['lot_number'],
+            'current_balance' => $lotCurrentValue,
+            'quantity' => $remainingHead
+        ];
+    }
+}
+
 // Sort cash flow data chronologically
 usort($cash_flow_data, function ($a, $b) {
     return strtotime($a['date']) - strtotime($b['date']);
+});
+
+usort($liquidation_report_data, function ($a, $b) {
+    $dateCompare = strtotime($b['date']) - strtotime($a['date']);
+    if ($dateCompare !== 0) {
+        return $dateCompare;
+    }
+    return intval($b['partnership_id']) - intval($a['partnership_id']);
+});
+
+usort($upcoming_slaughter_report_data, function ($a, $b) {
+    $dateCompare = strtotime($a['date']) - strtotime($b['date']);
+    if ($dateCompare !== 0) {
+        return $dateCompare;
+    }
+    return intval($a['partnership_id']) - intval($b['partnership_id']);
 });
 
 // Calculate running balance per partner, or global if needed. Wait, the report is global. Let's provide a global running balance or just keep raw lines and calculate balance in JS.
