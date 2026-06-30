@@ -24,22 +24,22 @@
         <div class="report-filter-bar" style="display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; align-items: flex-end; background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 8px;">
             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                 <label style="color: #94a3b8; font-size: 0.85rem;">Data Inicial</label>
-                <input type="date" id="liqReportDateStart" style="padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderLiquidationsReportTable()">
+                <input type="date" id="liqReportDateStart" style="padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;">
             </div>
             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                 <label style="color: #94a3b8; font-size: 0.85rem;">Data Final</label>
-                <input type="date" id="liqReportDateEnd" style="padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderLiquidationsReportTable()">
+                <input type="date" id="liqReportDateEnd" style="padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;">
             </div>
             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                 <label style="color: #94a3b8; font-size: 0.85rem;">Parceiro Propriet&aacute;rio</label>
-                <select id="liqReportOwner" style="width: 220px; padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderLiquidationsReportTable()">
+                <select id="liqReportOwner" style="width: 220px; padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;">
                     <option value="all">Todos</option>
                 </select>
             </div>
             <?php if (($userRole ?? '') === 'admin'): ?>
                 <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                     <label style="color: #94a3b8; font-size: 0.85rem;">Parceiro Investidor</label>
-                    <select id="liqReportInvestor" style="width: 220px; padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;" onchange="renderLiquidationsReportTable()">
+                    <select id="liqReportInvestor" style="width: 220px; padding: 0.5rem; border-radius: 6px; background: #0f172a; border: 1px solid #334155; color: #f8fafc; font-family: 'Inter', sans-serif;">
                         <option value="all">Todos</option>
                     </select>
                 </div>
@@ -102,7 +102,8 @@
     function populateLiquidationReportPartners() {
         const ownerSelect = document.getElementById('liqReportOwner');
         const investorSelect = document.getElementById('liqReportInvestor');
-        if (ownerSelect.dataset.loaded === '1' && (!investorSelect || investorSelect.dataset.loaded === '1')) return;
+        const selectedOwner = ownerSelect.value || 'all';
+        const selectedInvestor = investorSelect ? (investorSelect.value || 'all') : 'all';
 
         const owners = {};
         const investors = {};
@@ -111,17 +112,19 @@
             if (investorSelect && row.investor_id) investors[row.investor_id] = row.investor_name;
         });
 
+        ownerSelect.innerHTML = '<option value="all">Todos</option>';
         Object.entries(owners).sort((a, b) => a[1].localeCompare(b[1])).forEach(([id, name]) => {
             ownerSelect.insertAdjacentHTML('beforeend', `<option value="${escapeLiquidationHtml(id)}">${escapeLiquidationHtml(name)}</option>`);
         });
+        ownerSelect.value = owners[selectedOwner] ? selectedOwner : 'all';
+
         if (investorSelect) {
+            investorSelect.innerHTML = '<option value="all">Todos</option>';
             Object.entries(investors).sort((a, b) => a[1].localeCompare(b[1])).forEach(([id, name]) => {
                 investorSelect.insertAdjacentHTML('beforeend', `<option value="${escapeLiquidationHtml(id)}">${escapeLiquidationHtml(name)}</option>`);
             });
-            investorSelect.dataset.loaded = '1';
+            investorSelect.value = investors[selectedInvestor] ? selectedInvestor : 'all';
         }
-
-        ownerSelect.dataset.loaded = '1';
     }
 
     function openLiquidationsReportModal() {
@@ -212,20 +215,18 @@
         const ownerText = document.getElementById('liqReportOwner').selectedOptions[0].text;
         const investorSelect = document.getElementById('liqReportInvestor');
         const investorText = investorSelect ? investorSelect.selectedOptions[0].text : 'Todos';
-        const logoUrl = new URL('assets/logo.png', window.location.href).href;
         let totalPrincipal = 0;
         let totalInterest = 0;
         let totalAmount = 0;
         let totalQuantity = 0;
 
         let html = `
-            <div class="report-header">
-                <img src="${logoUrl}" alt="Cattle Invest" class="report-logo">
-                <div>
-                    <h2>Relat&oacute;rio de Liquida&ccedil;&otilde;es</h2>
-                    <p>Per&iacute;odo: ${(dStart || '').split('-').reverse().join('/')} a ${(dEnd || '').split('-').reverse().join('/')}</p>
-                    <p>Propriet&aacute;rio: ${escapeLiquidationHtml(ownerText)} | Investidor: ${escapeLiquidationHtml(investorText)}</p>
-                </div>
+            <div class="filters-summary">
+                <strong>Per&iacute;odo:</strong> ${(dStart || '').split('-').reverse().join('/')} a ${(dEnd || '').split('-').reverse().join('/')}
+                <span>|</span>
+                <strong>Propriet&aacute;rio:</strong> ${escapeLiquidationHtml(ownerText)}
+                <span>|</span>
+                <strong>Investidor:</strong> ${escapeLiquidationHtml(investorText)}
             </div>
             <table>
                 <thead>
@@ -283,52 +284,68 @@
         return html;
     }
 
+    function buildLiquidationsReportDocument(content, includePrintButton) {
+        const logoUrl = new URL('assets/logo.png', window.location.href).href;
+        const timestamp = new Date().toLocaleString('pt-BR');
+        return `
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+                <meta charset="UTF-8">
+                <title>Relat&oacute;rio de Liquida&ccedil;&otilde;es</title>
+                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+                <style>
+                    :root { --primary: #0f172a; --secondary: #64748b; --border: #e2e8f0; --bg-light: #f8fafc; }
+                    body { font-family: 'Inter', Arial, sans-serif; color: var(--primary); line-height: 1.4; margin: 0; padding: 30px; background: white; font-size: 11px; }
+                    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary); padding-bottom: 15px; margin-bottom: 20px; }
+                    .logo { height: 50px; }
+                    .title-block h1 { margin: 0; font-size: 18px; text-transform: uppercase; text-align: right; }
+                    .title-block p { margin: 2px 0 0; color: var(--secondary); text-align: right; font-size: 11px; }
+                    .filters-summary { margin-bottom: 10px; color: var(--secondary); font-weight: 600; }
+                    .filters-summary span { margin: 0 6px; color: #cbd5e1; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 10px; table-layout: fixed; }
+                    th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; }
+                    th { background: var(--bg-light); font-weight: 700; color: var(--secondary); text-transform: uppercase; font-size: 9px; }
+                    .number { text-align: right; font-family: 'Courier New', monospace; font-size: 10px; }
+                    .total { background: var(--bg-light); font-weight: 700; }
+                    .footer { margin-top: 30px; text-align: center; font-size: 10px; color: var(--secondary); border-top: 1px solid var(--border); padding-top: 15px; }
+                    .btn-print { display: inline-flex; align-items: center; gap: 8px; background: #0f172a; color: white; border: none; padding: 10px 24px; font-size: 13px; font-family: 'Inter', sans-serif; font-weight: 600; border-radius: 8px; cursor: pointer; margin-bottom: 20px; }
+                    .btn-print:hover { background: #1e293b; }
+                    @media print { body { padding: 0; } .no-print { display: none; } }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <img src="${logoUrl}" alt="Logo" class="logo">
+                    <div class="title-block">
+                        <h1>Relat&oacute;rio de Liquida&ccedil;&otilde;es</h1>
+                        <p>Emitido em: ${timestamp}</p>
+                    </div>
+                </div>
+                ${content}
+                <div class="footer">
+                    Cattle Invest - Sistema de Gest&atilde;o de Parcerias Pecu&aacute;rias
+                </div>
+                ${includePrintButton ? `
+                <div class="no-print" style="margin-bottom: 16px;">
+                    <button class="btn-print" onclick="window.print()">&#128438; Imprimir / Salvar PDF</button>
+                </div>` : ''}
+            </body>
+            </html>
+        `;
+    }
+
     function exportLiquidationsReportPDF() {
         const content = buildLiquidationsReportExportTable();
         const win = window.open('', '_blank');
-        win.document.write(`
-            <html>
-                <head>
-                    <title>Relat&oacute;rio de Liquida&ccedil;&otilde;es</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; color: #111827; }
-                        .report-header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
-                        .report-logo { height: 58px; width: auto; }
-                        .report-header h2 { margin: 0 0 8px; }
-                        .report-header p { margin: 2px 0; }
-                        table { border-collapse: collapse; width: 100%; font-size: 12px; }
-                        th, td { border: 1px solid #d1d5db; padding: 6px; }
-                        th { background: #f3f4f6; }
-                        .number { text-align: right; }
-                        .total { background: #ecfdf5; font-weight: bold; }
-                    </style>
-                </head>
-                <body>${content}</body>
-            </html>
-        `);
+        win.document.write(buildLiquidationsReportDocument(content, true));
         win.document.close();
         win.focus();
         win.print();
     }
 
     function exportLiquidationsReportXLS() {
-        const html = `
-            <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-                <head>
-                    <meta charset="UTF-8">
-                    <style>
-                        table { border-collapse: collapse; width: 100%; }
-                        .report-header { margin-bottom: 18px; }
-                        .report-logo { height: 58px; width: auto; }
-                        th, td { border: 1px solid #000; padding: 5px; }
-                        th { background-color: #f0f0f0; font-weight: bold; }
-                        .number { text-align: right; }
-                        .total { background-color: #e2e8f0; font-weight: bold; text-align: right; }
-                    </style>
-                </head>
-                <body>${buildLiquidationsReportExportTable()}</body>
-            </html>
-        `;
+        const html = buildLiquidationsReportDocument(buildLiquidationsReportExportTable(), false);
 
         const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
         const url = URL.createObjectURL(blob);

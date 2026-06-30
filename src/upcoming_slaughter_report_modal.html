@@ -199,19 +199,18 @@
         const ownerText = document.getElementById('upcomingReportOwner').selectedOptions[0].text;
         const investorSelect = document.getElementById('upcomingReportInvestor');
         const investorText = investorSelect ? investorSelect.selectedOptions[0].text : 'Todos';
-        const logoUrl = new URL('assets/logo.png', window.location.href).href;
         let totalBalance = 0;
         let totalQuantity = 0;
 
         let html = `
-            <div class="report-header">
-                <img src="${logoUrl}" alt="Cattle Invest" class="report-logo">
-                <div>
-                    <h2>Relat&oacute;rio de Abates a Liquidar</h2>
-                    <p>Abates ainda n&atilde;o liquidados</p>
-                    <p>Per&iacute;odo: ${(dStart || '').split('-').reverse().join('/')} a ${(dEnd || '').split('-').reverse().join('/')}</p>
-                    <p>Propriet&aacute;rio: ${escapeUpcomingSlaughterHtml(ownerText)} | Investidor: ${escapeUpcomingSlaughterHtml(investorText)}</p>
-                </div>
+            <div class="filters-summary">
+                <strong>Abates ainda n&atilde;o liquidados</strong>
+                <span>|</span>
+                <strong>Per&iacute;odo:</strong> ${(dStart || '').split('-').reverse().join('/')} a ${(dEnd || '').split('-').reverse().join('/')}
+                <span>|</span>
+                <strong>Propriet&aacute;rio:</strong> ${escapeUpcomingSlaughterHtml(ownerText)}
+                <span>|</span>
+                <strong>Investidor:</strong> ${escapeUpcomingSlaughterHtml(investorText)}
             </div>
             <table>
                 <thead>
@@ -259,52 +258,68 @@
         return html;
     }
 
+    function buildUpcomingSlaughterReportDocument(content, includePrintButton) {
+        const logoUrl = new URL('assets/logo.png', window.location.href).href;
+        const timestamp = new Date().toLocaleString('pt-BR');
+        return `
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+                <meta charset="UTF-8">
+                <title>Relat&oacute;rio de Abates a Liquidar</title>
+                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+                <style>
+                    :root { --primary: #0f172a; --secondary: #64748b; --border: #e2e8f0; --bg-light: #f8fafc; }
+                    body { font-family: 'Inter', Arial, sans-serif; color: var(--primary); line-height: 1.4; margin: 0; padding: 30px; background: white; font-size: 11px; }
+                    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary); padding-bottom: 15px; margin-bottom: 20px; }
+                    .logo { height: 50px; }
+                    .title-block h1 { margin: 0; font-size: 18px; text-transform: uppercase; text-align: right; }
+                    .title-block p { margin: 2px 0 0; color: var(--secondary); text-align: right; font-size: 11px; }
+                    .filters-summary { margin-bottom: 10px; color: var(--secondary); font-weight: 600; }
+                    .filters-summary span { margin: 0 6px; color: #cbd5e1; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 10px; table-layout: fixed; }
+                    th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; }
+                    th { background: var(--bg-light); font-weight: 700; color: var(--secondary); text-transform: uppercase; font-size: 9px; }
+                    .number { text-align: right; font-family: 'Courier New', monospace; font-size: 10px; }
+                    .total { background: var(--bg-light); font-weight: 700; }
+                    .footer { margin-top: 30px; text-align: center; font-size: 10px; color: var(--secondary); border-top: 1px solid var(--border); padding-top: 15px; }
+                    .btn-print { display: inline-flex; align-items: center; gap: 8px; background: #0f172a; color: white; border: none; padding: 10px 24px; font-size: 13px; font-family: 'Inter', sans-serif; font-weight: 600; border-radius: 8px; cursor: pointer; margin-bottom: 20px; }
+                    .btn-print:hover { background: #1e293b; }
+                    @media print { body { padding: 0; } .no-print { display: none; } }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <img src="${logoUrl}" alt="Logo" class="logo">
+                    <div class="title-block">
+                        <h1>Relat&oacute;rio de Abates a Liquidar</h1>
+                        <p>Emitido em: ${timestamp}</p>
+                    </div>
+                </div>
+                ${content}
+                <div class="footer">
+                    Cattle Invest - Sistema de Gest&atilde;o de Parcerias Pecu&aacute;rias
+                </div>
+                ${includePrintButton ? `
+                <div class="no-print" style="margin-bottom: 16px;">
+                    <button class="btn-print" onclick="window.print()">&#128438; Imprimir / Salvar PDF</button>
+                </div>` : ''}
+            </body>
+            </html>
+        `;
+    }
+
     function exportUpcomingSlaughterReportPDF() {
         const content = buildUpcomingSlaughterReportExportTable();
         const win = window.open('', '_blank');
-        win.document.write(`
-            <html>
-                <head>
-                    <title>Relat&oacute;rio de Abates a Liquidar</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; color: #111827; }
-                        .report-header { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
-                        .report-logo { height: 58px; width: auto; }
-                        .report-header h2 { margin: 0 0 8px; }
-                        .report-header p { margin: 2px 0; }
-                        table { border-collapse: collapse; width: 100%; font-size: 12px; }
-                        th, td { border: 1px solid #d1d5db; padding: 6px; }
-                        th { background: #f3f4f6; }
-                        .number { text-align: right; }
-                        .total { background: #fffbeb; font-weight: bold; }
-                    </style>
-                </head>
-                <body>${content}</body>
-            </html>
-        `);
+        win.document.write(buildUpcomingSlaughterReportDocument(content, true));
         win.document.close();
         win.focus();
         win.print();
     }
 
     function exportUpcomingSlaughterReportXLS() {
-        const html = `
-            <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-                <head>
-                    <meta charset="UTF-8">
-                    <style>
-                        table { border-collapse: collapse; width: 100%; }
-                        .report-header { margin-bottom: 18px; }
-                        .report-logo { height: 58px; width: auto; }
-                        th, td { border: 1px solid #000; padding: 5px; }
-                        th { background-color: #f0f0f0; font-weight: bold; }
-                        .number { text-align: right; }
-                        .total { background-color: #e2e8f0; font-weight: bold; text-align: right; }
-                    </style>
-                </head>
-                <body>${buildUpcomingSlaughterReportExportTable()}</body>
-            </html>
-        `;
+        const html = buildUpcomingSlaughterReportDocument(buildUpcomingSlaughterReportExportTable(), false);
 
         const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
         const url = URL.createObjectURL(blob);

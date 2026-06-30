@@ -1980,12 +1980,108 @@ unset($p);
             const totalSaldoPrevisto = document.getElementById('totalSaldoPrevisto').innerText;
             const totalsCount = document.getElementById('totalsCount').innerText;
 
+            const escapeReportHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            })[char]);
+
+            const reportFormatLotDisplay = (lotNumber) => {
+                if (typeof formatLotDisplay === 'function') {
+                    return formatLotDisplay(lotNumber);
+                }
+                if (!lotNumber) return '-';
+                return String(lotNumber).split(',').map(lot => lot.trim()).filter(Boolean).map(lot => `#${lot}`).join(', ');
+            };
+
+            const reportFormatCurrency = (value) => parseFloat(value || 0).toLocaleString('pt-BR', {
+                style: 'currency',
+                currency: 'BRL'
+            });
+
+            const buildReportLiquidationsHtml = (memory) => {
+                if (!memory || !memory.liquidations || memory.liquidations.length === 0) return '';
+
+                const liquidations = typeof getSummarizedLiquidations === 'function'
+                    ? getSummarizedLiquidations(memory.liquidations)
+                    : memory.liquidations;
+                if (!liquidations || liquidations.length === 0) return '';
+
+                let liquidationRows = '';
+                let lastLiqDateStr = memory.start_date;
+
+                liquidations.forEach(liq => {
+                    const dateParts = String(liq.date || '').split('-');
+                    const liqDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
+                    const d = String(liqDate.getUTCDate()).padStart(2, '0');
+                    const m = String(liqDate.getUTCMonth() + 1).padStart(2, '0');
+                    const y = liqDate.getUTCFullYear();
+
+                    const lastParts = String(lastLiqDateStr || memory.start_date).split('-');
+                    const lastDate = new Date(Date.UTC(lastParts[0], lastParts[1] - 1, lastParts[2]));
+                    const diffDays = Math.max(0, Math.ceil((liqDate - lastDate) / (1000 * 60 * 60 * 24)));
+                    const displayElapsed = `${(diffDays / 30).toFixed(1)}m (${diffDays}d)`;
+
+                    let displayQuantity = '-';
+                    if (liq.quantity) {
+                        displayQuantity = liq.quantity_display || liq.quantity;
+                    } else if (parseInt(liq.estimated_quantity || 0) > 0) {
+                        displayQuantity = liq.quantity_display || `~${parseInt(liq.estimated_quantity || 0)}`;
+                    }
+
+                    liquidationRows += `
+                        <tr>
+                            <td>${d}/${m}/${y}</td>
+                            <td style="text-align: center;">${escapeReportHtml(displayElapsed)}</td>
+                            <td style="text-align: center; color: #92400e; font-weight: 600;">${escapeReportHtml(reportFormatLotDisplay(liq.lot_number))}</td>
+                            <td style="text-align: center;">${escapeReportHtml(displayQuantity)}</td>
+                            <td class="number" style="text-align: right;">${parseFloat(liq.rate || 0).toFixed(2)}%</td>
+                            <td class="number" style="text-align: right;">${reportFormatCurrency(liq.amount_principal)}</td>
+                            <td class="number" style="text-align: right;">${reportFormatCurrency(liq.amount_interest)}</td>
+                            <td class="number" style="text-align: right; font-weight: 600;">${reportFormatCurrency(liq.amount_total)}</td>
+                            <td class="number" style="text-align: right; font-weight: 600;">${reportFormatCurrency(liq.balance_after || 0)}</td>
+                        </tr>
+                    `;
+
+                    lastLiqDateStr = liq.date;
+                });
+
+                return `
+                    <tr class="liquidations-row">
+                        <td colspan="11">
+                            <div class="liquidations-box">
+                                <div class="liquidations-title">Histórico de Liquidações</div>
+                                <table class="liquidations-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Data</th>
+                                            <th style="text-align: center;">Tempo</th>
+                                            <th style="text-align: center;">Lote</th>
+                                            <th style="text-align: center;">Cab.</th>
+                                            <th style="text-align: right;">Taxa</th>
+                                            <th style="text-align: right;">Principal</th>
+                                            <th style="text-align: right;">Valor da Engorda</th>
+                                            <th style="text-align: right;">Total</th>
+                                            <th style="text-align: right;">Saldo Após</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${liquidationRows}</tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            };
+
             // Get visible rows data
             let rowsHtml = '';
             document.querySelectorAll('.partnership-row').forEach(row => {
                 if (row.style.display === 'none') return;
                 
                 const cells = row.querySelectorAll('td');
+                const memory = partnershipMemories[row.dataset.id];
                 // Columns: ID (1), Proprietário (2), Investidor (3), Confinamento (4), Data (5), Lotes (6), ValInicial (7), ValAtual (8), ValPrevisto (9), SaldoAtual (10), SaldoPrevisto (11)
                 rowsHtml += `
                     <tr>
@@ -2001,6 +2097,7 @@ unset($p);
                         <td align="right" class="number" style="font-weight: 600;">${cells[10].innerText}</td>
                         <td align="right" class="number" style="font-weight: 600;">${cells[11].innerText}</td>
                     </tr>
+                    ${buildReportLiquidationsHtml(memory)}
                 `;
             });
 
@@ -2022,6 +2119,12 @@ unset($p);
                     th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; }
                     th { background: var(--bg-light); font-weight: 700; color: var(--secondary); text-transform: uppercase; font-size: 9px; }
                     .number { font-family: 'Courier New', monospace; font-size: 10px; }
+                    .liquidations-row > td { padding: 0 4px 10px 34px; background: #fff7ed; border-bottom: 1px solid #fed7aa; overflow: visible; }
+                    .liquidations-box { border-left: 3px solid #f59e0b; padding: 8px 0 8px 10px; }
+                    .liquidations-title { color: #92400e; font-weight: 700; font-size: 10px; text-transform: uppercase; margin-bottom: 4px; }
+                    .liquidations-table { margin-top: 4px; table-layout: auto; background: white; }
+                    .liquidations-table th { background: #fffbeb; color: #92400e; font-size: 8px; }
+                    .liquidations-table td { font-size: 9px; padding: 4px; }
                     tfoot { display: table-row-group; }
                     tfoot tr { background: var(--bg-light); font-weight: 700; }
                     .footer { margin-top: 30px; text-align: center; font-size: 10px; color: var(--secondary); border-top: 1px solid var(--border); padding-top: 15px; }
