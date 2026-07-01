@@ -37,9 +37,12 @@ if ($userRole === 'admin') {
         $whereClause = "(p.owner_id = ? OR p.investor_id = ? OR p.confinamento_id = ?)";
         $params = [$selectedPartnerId, $selectedPartnerId, $selectedPartnerId];
     }
-} elseif ($userRole === 'user') {
+} else {
+    // Any non-admin role (including an unexpected/empty one) is restricted to
+    // its own partner. Never fall back to the default "1=1" clause, which would
+    // expose every partnership when the role could not be resolved.
     if (!$userPartnerId) {
-        // User has no linked partner, they shouldn't see any partnerships
+        // No linked partner: don't show any partnership.
         $whereClause = "1=0";
     } else {
         $whereClause = "(p.owner_id = ? OR p.investor_id = ? OR p.confinamento_id = ?)";
