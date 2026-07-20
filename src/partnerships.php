@@ -691,7 +691,21 @@ foreach ($partnerships as &$p) {
         if ($settlementDate && $initialPrincipal > 0 && $totalPaidToDate > 0) {
             $monthsSettled = calculateMonthsBetween($p['start_date'], $settlementDate);
             if ($monthsSettled > 0) {
-                $memory['weighted_rate'] = (pow(($totalPaidToDate / $initialPrincipal), (1 / $monthsSettled)) - 1) * 100;
+                // Time-weighted effective rate (IRR) honoring each payment's date,
+                // matching the rate stored on the lots at settlement. The old
+                // closed form (totalPaid / principal)^(1/months) - 1 treated every
+                // payment as if it occurred at settlement, understating the rate
+                // whenever partial payments preceded it.
+                $settlePayments = [];
+                foreach ($liquidations as $liq) {
+                    if ($liq['date'] <= $settlementDate) {
+                        $settlePayments[] = ['date' => $liq['date'], 'amount_total' => $liq['amount_total']];
+                    }
+                }
+                $irr = calculateSettlementIRR($initialPrincipal, $settlePayments, $p['start_date'], $settlementDate);
+                $memory['weighted_rate'] = ($irr !== null)
+                    ? $irr
+                    : (pow(($totalPaidToDate / $initialPrincipal), (1 / $monthsSettled)) - 1) * 100;
             }
         }
     }

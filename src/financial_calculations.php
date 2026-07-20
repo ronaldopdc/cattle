@@ -499,3 +499,76 @@ function calculateProjectedBalance($currentBalance, $currentDate, $rate, $lots, 
     $factor = pow((1 + $rate / 100), $months);
     return $currentBalance * $factor;
 }
+
+/**
+ * Solves for the constant monthly rate (internal rate of return) that makes the
+ * partnership's rolling balance land on zero at the settlement date, honoring the
+ * DATE of every payment.
+ *
+ * Starting from the initial principal, the balance is capitalized forward at the
+ * candidate rate between consecutive payment dates and each payment is subtracted
+ * on its own date. Unlike the closed form (totalPaid / principal)^(1/months) - 1,
+ * this accounts for the time value of early partial payments, so the recovered
+ * rate matches the rate actually charged (i.e. the agreed rate when the interim
+ * payments were exact). The closed form ignored payment timing and systematically
+ * understated the rate whenever partial payments preceded the settlement.
+ *
+ * When there is a single payment on the settlement date, this reduces exactly to
+ * the old closed form, so it is a strict generalization.
+ *
+ * @param float  $principal      Initial principal (partnership total_value).
+ * @param array  $liquidations   Rows with 'date' and 'amount_total'.
+ * @param string $startDate      Partnership start date (Y-m-d).
+ * @param string $settlementDate Final settlement date (Y-m-d).
+ * @return float|null Monthly rate in percent, or null if it cannot be solved.
+ */
+function calculateSettlementIRR($principal, $liquidations, $startDate, $settlementDate)
+{
+    if ($principal <= 0 || empty($liquidations)) {
+        return null;
+    }
+
+    // Chronological order (earliest payment first).
+    $payments = $liquidations;
+    usort($payments, function ($a, $b) {
+        return strtotime($a['date']) - strtotime($b['date']);
+    });
+
+    // Residual balance at the settlement date for a candidate monthly rate.
+    // Monotonically increasing in $rate: a higher rate accrues more interest and
+    // leaves a larger residual, which lets us bracket the root by bisection.
+    $residual = function ($rate) use ($principal, $payments, $startDate, $settlementDate) {
+        $balance = $principal;
+        $last = $startDate;
+        foreach ($payments as $pmt) {
+            $m = calculateMonthsBetween($last, $pmt['date']);
+            if ($m < 0) $m = 0;
+            $balance = $balance * pow((1 + $rate / 100), $m) - floatval($pmt['amount_total']);
+            $last = $pmt['date'];
+        }
+        // Capitalize any remainder up to the settlement date (0 months when the
+        // last payment is the settlement itself).
+        $mFinal = calculateMonthsBetween($last, $settlementDate);
+        if ($mFinal < 0) $mFinal = 0;
+        return $balance * pow((1 + $rate / 100), $mFinal);
+    };
+
+    // (1 + rate/100) must stay positive, so the rate is bounded below by -100%.
+    $lo = -99.0;
+    $hi = 1000.0;
+    $fLo = $residual($lo);
+    $fHi = $residual($hi);
+    // Cannot bracket a sign change: give up and let the caller fall back.
+    if ($fLo > 0 || $fHi < 0) {
+        return null;
+    }
+    for ($i = 0; $i < 200; $i++) {
+        $mid = ($lo + $hi) / 2;
+        if ($residual($mid) > 0) {
+            $hi = $mid;
+        } else {
+            $lo = $mid;
+        }
+    }
+    return ($lo + $hi) / 2;
+}

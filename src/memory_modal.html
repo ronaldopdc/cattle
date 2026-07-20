@@ -723,10 +723,10 @@
 
             document.getElementById('mem-time-elapsed').innerHTML = `${diffMonthsSettled} meses <span style="font-size: 0.9rem; color: #10b981;">(Quitado em ${displayDaysSettled} dias)</span>`;
 
-            let initialPrincipal = parseFloat(memory.total_initial_principal);
-            if (preciseMonths > 0 && initialPrincipal > 0 && totalLiquidated > 0) {
-                weightedRate = (Math.pow((totalLiquidated / initialPrincipal), (1 / preciseMonths)) - 1) * 100;
-            }
+            // A taxa efetiva de quitação (IRR ponderada no tempo) vem pronta do
+            // backend em memory.weighted_rate. Não recalcular aqui com a fórmula
+            // fechada (totalLiquidado/principal)^(1/meses)-1, que ignora a data de
+            // cada pagamento e subestima a taxa quando há pagamentos parciais.
         }
 
         document.getElementById('mem-weighted-rate').innerHTML = `${weightedRate.toFixed(2)}% <span style="font-size: 0.9rem; color: #64748b;">a.m.</span>`;
@@ -877,13 +877,9 @@
             const preciseMonths = finalDisplayDays / 30;
             displayMonths = preciseMonths.toFixed(1);
 
-            let initialPrincipal = parseFloat(memory.total_initial_principal);
-            let totalPaid = totalLiquidated;
-            
-            if (preciseMonths > 0 && initialPrincipal > 0) {
-                const effectiveRate = Math.pow((totalPaid / initialPrincipal), (1 / preciseMonths)) - 1;
-                weightedRate = effectiveRate * 100;
-            }
+            // Usa a taxa efetiva de quitação (IRR) já calculada pelo backend em
+            // memory.weighted_rate; não recalcular com a fórmula fechada, que
+            // subestima a taxa quando existem pagamentos parciais antes da quitação.
         }
 
         // Cattle / Lot info for XLS export
@@ -1012,7 +1008,11 @@
                 const preciseMonths = displayDaysSettled / 30;
                 
                 if (preciseMonths > 0 && initialPrincipal > 0) {
-                    effectiveRateContract = (Math.pow((totalPaid / initialPrincipal), (1 / preciseMonths)) - 1) * 100;
+                    // Taxa efetiva de quitação (IRR) já calculada no backend em
+                    // memory.weighted_rate. Não recalcular com a fórmula fechada,
+                    // que subestima a taxa quando há pagamentos parciais antes da
+                    // quitação.
+                    effectiveRateContract = parseFloat(memory.weighted_rate);
                 }
             }
 

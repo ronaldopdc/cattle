@@ -848,7 +848,21 @@ foreach ($partnerships as $p) {
         $preciseMonths = $diffDaysSettled / 30;
         
         if ($preciseMonths > 0 && $initial > 0) {
-            $effective_rate_decimal = pow(($totalPaid / $initial), (1 / $preciseMonths)) - 1;
+            // Time-weighted effective rate (IRR) honoring each payment's date,
+            // consistent with the settlement rate stored on the lots and shown in
+            // the memory modal. The old closed form (totalPaid/initial)^(1/months)-1
+            // ignored payment timing and understated the rate whenever partial
+            // payments preceded the settlement.
+            $settlePayments = [];
+            foreach ($liquidations as $l) {
+                if ($l['date'] <= $lDateObjStr) {
+                    $settlePayments[] = ['date' => $l['date'], 'amount_total' => $l['amount_total']];
+                }
+            }
+            $irr = calculateSettlementIRR($initial, $settlePayments, $p['start_date'], $lDateObjStr);
+            $effective_rate_decimal = ($irr !== null)
+                ? ($irr / 100)
+                : (pow(($totalPaid / $initial), (1 / $preciseMonths)) - 1);
         }
     }
 

@@ -546,7 +546,20 @@ if (isset($_GET['action']) && $_GET['action'] === 'add_liquidation') {
 
             $monthsSettled = calculateMonthsBetween($partnership['start_date'], $date);
             if ($monthsSettled > 0 && floatval($partnership['total_value']) > 0 && $totalPaid > 0) {
-                $effectiveRate = (pow(($totalPaid / floatval($partnership['total_value'])), (1 / $monthsSettled)) - 1) * 100;
+                // Time-weighted effective monthly rate (IRR). The old closed form
+                // (totalPaid / total_value)^(1/months) - 1 treated every payment as
+                // if it happened on the settlement date, so any partial payment made
+                // earlier dragged the recovered rate below the rate actually charged.
+                // Solve the rate from the real, dated cash flows instead.
+                $stmtIrrRows = $pdo->prepare("SELECT date, amount_total FROM partnership_liquidations WHERE partnership_id = ? ORDER BY date ASC, id ASC");
+                $stmtIrrRows->execute([$partnership_id]);
+                $irrRows = $stmtIrrRows->fetchAll(PDO::FETCH_ASSOC);
+
+                $effectiveRate = calculateSettlementIRR(floatval($partnership['total_value']), $irrRows, $partnership['start_date'], $date);
+                if ($effectiveRate === null) {
+                    // Fallback to the closed form if the IRR cannot be bracketed.
+                    $effectiveRate = (pow(($totalPaid / floatval($partnership['total_value'])), (1 / $monthsSettled)) - 1) * 100;
+                }
 
                 $totalOriginalPrincipal = 0;
                 foreach ($allLots as &$lot) {
