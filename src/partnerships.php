@@ -1466,7 +1466,7 @@ unset($p);
 
             lotsData.forEach(lot => {
                 const selected = data && data.lot_id == lot.id ? 'selected' : '';
-                
+
                 // Exclude lots that have already passed their slaughter/liquidation date
                 if (!selected && lot.exit_forecast_date) {
                     const [year, month, day] = lot.exit_forecast_date.split('-');
@@ -1479,6 +1479,12 @@ unset($p);
                 const availableVal = lot.available_value ? parseFloat(lot.available_value) : 0;
                 const avail = availableVal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
                 const availAnimals = lot.available_animals ? parseInt(lot.available_animals) : 0;
+
+                // Exclude lots with no head left to allocate
+                if (!selected && availAnimals <= 0) {
+                    return;
+                }
+
                 options += `<option value="${lot.id}" ${selected}>Lote ${lot.lot_number} - ${lot.breed} (Disp: ${avail} - Qtd: ${availAnimals})</option>`;
             });
 
