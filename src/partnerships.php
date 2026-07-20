@@ -279,6 +279,19 @@ foreach ($allAllocations as $alloc) {
     $lotTotalPrincipalMap[$alloc['lot_id']] += $principal;
 }
 
+// Reference date ("data de referência"): recalculates the whole list as of a
+// chosen date. Defaults to today when not provided or invalid, keeping the
+// normal behavior unchanged.
+$referenceDate = date('Y-m-d');
+$hasRefDate = false; // true when the user explicitly chose a reference date
+if (!empty($_GET['ref_date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['ref_date'])) {
+    $refCheck = DateTime::createFromFormat('Y-m-d', $_GET['ref_date']);
+    if ($refCheck && $refCheck->format('Y-m-d') === $_GET['ref_date']) {
+        $referenceDate = $_GET['ref_date'];
+        $hasRefDate = true;
+    }
+}
+
 // Store calculation memories
 $partnershipMemories = [];
 
@@ -290,7 +303,8 @@ foreach ($partnerships as &$p) {
     $p['projected_balance'] = 0;
 
     $liquidations = $partnershipLiquidations[$p['id']] ?? [];
-    $today = date('Y-m-d');
+    // Uses the reference date as "today" so all values reflect that date.
+    $today = $referenceDate;
     $settlementDisplayDate = null;
     $latestLiquidationDate = null;
     $total_liquidated_principal = 0;
@@ -316,7 +330,9 @@ foreach ($partnerships as &$p) {
 
     // Calculate State (Rolling Balance)
     // $lots and $liquidations are already defined above (lines 197, 206)
-    $displayDate = ($latestLiquidationDate && $latestLiquidationDate > $today) ? $latestLiquidationDate : $today;
+    // With an explicit reference date, values are strictly "as of" that date
+    // (do not jump forward to later liquidations).
+    $displayDate = (!$hasRefDate && $latestLiquidationDate && $latestLiquidationDate > $today) ? $latestLiquidationDate : $today;
     $calcState = calculatePartnershipState($p, $lots, $liquidations, $displayDate);
 
     // Update Partnership Values
@@ -443,9 +459,11 @@ foreach ($partnerships as &$p) {
     // Use the latest liquidation date so newly entered liquidations immediately
     // update cattle balances even when their date is ahead of the server date.
     $lotBalanceTargetDate = $today;
-    foreach ($liquidations as $liq) {
-        if ($liq['date'] > $lotBalanceTargetDate) {
-            $lotBalanceTargetDate = $liq['date'];
+    if (!$hasRefDate) {
+        foreach ($liquidations as $liq) {
+            if ($liq['date'] > $lotBalanceTargetDate) {
+                $lotBalanceTargetDate = $liq['date'];
+            }
         }
     }
 
@@ -518,9 +536,11 @@ foreach ($partnerships as &$p) {
 
     // --- Build Memory ---
     $memoryTargetDate = $today;
-    foreach ($liquidations as $liq) {
-        if ($liq['date'] > $memoryTargetDate) {
-            $memoryTargetDate = $liq['date'];
+    if (!$hasRefDate) {
+        foreach ($liquidations as $liq) {
+            if ($liq['date'] > $memoryTargetDate) {
+                $memoryTargetDate = $liq['date'];
+            }
         }
     }
     $memoryState = calculatePartnershipState($p, $lots, $liquidations, $memoryTargetDate);
@@ -669,10 +689,10 @@ foreach ($partnerships as &$p) {
             }
         }
         unset($liqRef);
-        $memory['weighted_rate'] = $totalPrincipal > 0 ? $totalWeightedRate / $totalPrincipal : $getRateForDate(date('Y-m-d'));
+        $memory['weighted_rate'] = $totalPrincipal > 0 ? $totalWeightedRate / $totalPrincipal : $getRateForDate($today);
     } else {
         // No liquidations: use the rate from the furthest lot
-        $memory['weighted_rate'] = $getRateForDate(date('Y-m-d'));
+        $memory['weighted_rate'] = $getRateForDate($today);
     }
 
     if ($p['current_balance'] < 0.01 && count($liquidations) > 0) {
@@ -1076,6 +1096,18 @@ unset($p);
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <h2 style="margin: 0;" id="pageTitle">Parcerias Ativas</h2>
                     <div style="display: flex; gap: 1rem; align-items: center;">
+                        <label style="display: flex; align-items: center; gap: 0.4rem; color: #94a3b8; font-size: 0.85rem; white-space: nowrap;">
+                            <i class="fas fa-calendar-day"></i> Data de referência:
+                            <input type="date" id="refDate" value="<?= htmlspecialchars($referenceDate) ?>"
+                                onchange="applyRefDate(this.value)"
+                                style="padding: 0.4rem 0.6rem; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #e2e8f0;">
+                        </label>
+                        <?php if ($referenceDate !== date('Y-m-d')): ?>
+                            <button class="btn btn-secondary" onclick="applyRefDate('')" title="Voltar para hoje"
+                                style="background-color: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.3); color: #fbbf24;">
+                                <i class="fas fa-rotate-left"></i> Hoje
+                            </button>
+                        <?php endif; ?>
                         <button class="btn btn-secondary" onclick="openSimulationModal()" style="background-color: #38bdf8; border-color: #38bdf8; color: white;">
                             <i class="fas fa-calculator"></i> Simulação
                         </button>
@@ -1987,10 +2019,29 @@ unset($p);
         // Calculate totals on page load
         document.addEventListener('DOMContentLoaded', recalculateTotals);
 
+        // Reloads the list computing all values as of the chosen reference date.
+        // An empty value returns to "today".
+        function applyRefDate(value) {
+            const url = new URL(window.location.href);
+            if (value) {
+                url.searchParams.set('ref_date', value);
+            } else {
+                url.searchParams.delete('ref_date');
+            }
+            window.location.href = url.toString();
+        }
+
         function generatePartnershipReport() {
             const titleText = document.getElementById('pageTitle').innerText;
             const logoUrl = new URL('assets/logo.png', window.location.href).href;
             const timestamp = new Date().toLocaleString('pt-BR');
+
+            // Reference date shown on the report (from the list's date input).
+            const refDateInput = document.getElementById('refDate');
+            const refDateValue = refDateInput ? refDateInput.value : '';
+            const refDateFormatted = refDateValue
+                ? refDateValue.split('-').reverse().join('/')
+                : new Date().toLocaleDateString('pt-BR');
             
             // Get totals
             const totalValInicial = document.getElementById('totalValInicial').innerText;
@@ -2158,6 +2209,7 @@ unset($p);
                     <img src="${logoUrl}" alt="Logo" class="logo">
                     <div class="title-block">
                         <h1>${titleText}</h1>
+                        <p>Data de referência: ${refDateFormatted}</p>
                         <p>Emitido em: ${timestamp}</p>
                     </div>
                 </div>

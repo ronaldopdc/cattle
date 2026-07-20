@@ -245,6 +245,16 @@ try {
     $stmtUpdateToken = $pdo->prepare("UPDATE registration_tokens SET used_at = NOW(), partner_id = ? WHERE token = ?");
     $stmtUpdateToken->execute([$partnerId, $token]);
 
+    // 4b. Se este token veio de uma simulação pública, vincula a simulação ao
+    // parceiro recém-criado. Envolvido em try/catch para não afetar cadastros
+    // normais (a tabela pode não existir em instalações sem o módulo).
+    try {
+        $stmtLinkSim = $pdo->prepare("UPDATE partnership_simulations SET partner_id = ? WHERE token = ? AND partner_id IS NULL");
+        $stmtLinkSim->execute([$partnerId, $token]);
+    } catch (Exception $simEx) {
+        // Ignora: cadastro segue normalmente mesmo sem o módulo de simulação.
+    }
+
     $pdo->commit();
     echo json_encode(['success' => true]);
 

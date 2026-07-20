@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Cattle Invest</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
     <style>
         body {
@@ -91,6 +92,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             background-color: var(--accent-color);
         }
 
+        .btn-simulate {
+            width: 100%;
+            padding: 0.75rem;
+            margin-top: 0.85rem;
+            background-color: transparent;
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            text-decoration: none;
+        }
+
+        .btn-simulate:hover {
+            background-color: rgba(56, 189, 248, 0.12);
+            border-color: #38bdf8;
+        }
+
         .error-message {
             color: #ef4444;
             background-color: rgba(239, 68, 68, 0.1);
@@ -125,6 +150,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="password" name="password" class="form-control" placeholder="Senha" required>
             </div>
             <button type="submit" class="btn-login">Entrar</button>
+            <a href="simulacao.php" class="btn-simulate">
+                <i class="fas fa-calculator"></i> Simular Parceria
+            </a>
             <div style="text-align: center; margin-top: 1.5rem;">
                 <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 0.5rem;">Não tem uma conta?</p>
                 <a href="register.php"
