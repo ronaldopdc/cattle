@@ -279,20 +279,21 @@ foreach ($allAllocations as $alloc) {
     $lotTotalPrincipalMap[$alloc['lot_id']] += $principal;
 }
 
-// Store calculation memories
-$partnershipMemories = [];
-
-// Reference date for the "Valor Atual" / "Saldo Atual" columns. Defaults to today,
-// but the user can pick another date to see the balance as of that date.
+// Reference date ("data de referência"): recalculates the whole list as of a
+// chosen date. Defaults to today when not provided or invalid, keeping the
+// normal behavior unchanged.
 $todayStr = date('Y-m-d');
-$refDate = $todayStr;
-if (!empty($_GET['ref_date'])) {
-    $d = DateTime::createFromFormat('Y-m-d', $_GET['ref_date']);
-    if ($d && $d->format('Y-m-d') === $_GET['ref_date']) {
-        $refDate = $_GET['ref_date'];
+$referenceDate = $todayStr;
+$hasRefDate = false; // true when the user explicitly chose a reference date
+if (!empty($_GET['ref_date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['ref_date'])) {
+    $refCheck = DateTime::createFromFormat('Y-m-d', $_GET['ref_date']);
+    if ($refCheck && $refCheck->format('Y-m-d') === $_GET['ref_date']) {
+        $referenceDate = $_GET['ref_date'];
+        $hasRefDate = true;
     }
 }
-$isDefaultRefDate = ($refDate === $todayStr);
+// Store calculation memories
+$partnershipMemories = [];
 
 // Calculate Values
 foreach ($partnerships as &$p) {
@@ -302,7 +303,8 @@ foreach ($partnerships as &$p) {
     $p['projected_balance'] = 0;
 
     $liquidations = $partnershipLiquidations[$p['id']] ?? [];
-    $today = date('Y-m-d');
+    // Uses the reference date as "today" so all values reflect that date.
+    $today = $referenceDate;
     $settlementDisplayDate = null;
     $latestLiquidationDate = null;
     $total_liquidated_principal = 0;
@@ -328,14 +330,9 @@ foreach ($partnerships as &$p) {
 
     // Calculate State (Rolling Balance)
     // $lots and $liquidations are already defined above (lines 197, 206)
-    // On the default (today) view keep the convenience of jumping to a future
-    // liquidation date; when the user picks a specific reference date, snapshot
-    // the balance strictly at that date.
-    if ($isDefaultRefDate) {
-        $displayDate = ($latestLiquidationDate && $latestLiquidationDate > $refDate) ? $latestLiquidationDate : $refDate;
-    } else {
-        $displayDate = $refDate;
-    }
+    // On the default view keep the convenience of jumping to a future
+    // liquidation date; explicit reference dates stay strictly "as of" that date.
+    $displayDate = (!$hasRefDate && $latestLiquidationDate && $latestLiquidationDate > $today) ? $latestLiquidationDate : $today;
     $calcState = calculatePartnershipState($p, $lots, $liquidations, $displayDate);
 
     // Update Partnership Values
@@ -459,10 +456,7 @@ foreach ($partnerships as &$p) {
     }
 
     // Second pass: compute per-lot balances (distributes unassigned liquidations proportionally).
-    // Anchor to the reference date used for the current balance ($displayDate). On the
-    // default (today) view this already jumps to a future liquidation date so newly entered
-    // liquidations update cattle balances immediately; when the user picks a reference date,
-    // the per-lot balances are computed strictly as of that date.
+    // Anchor to the same reference date used for the current balance.
     $lotBalanceTargetDate = $displayDate;
 
     // Head (cattle) balances are computed independently of the lot's projected_value
@@ -681,10 +675,10 @@ foreach ($partnerships as &$p) {
             }
         }
         unset($liqRef);
-        $memory['weighted_rate'] = $totalPrincipal > 0 ? $totalWeightedRate / $totalPrincipal : $getRateForDate(date('Y-m-d'));
+        $memory['weighted_rate'] = $totalPrincipal > 0 ? $totalWeightedRate / $totalPrincipal : $getRateForDate($today);
     } else {
         // No liquidations: use the rate from the furthest lot
-        $memory['weighted_rate'] = $getRateForDate(date('Y-m-d'));
+        $memory['weighted_rate'] = $getRateForDate($today);
     }
 
     if ($p['current_balance'] < 0.01 && count($liquidations) > 0) {
@@ -1092,11 +1086,17 @@ unset($p);
                             <label for="refDate" style="color: #94a3b8; font-size: 0.8rem;">
                                 <i class="fas fa-calendar-day"></i> Valores na data
                             </label>
-                            <input type="date" id="refDate" value="<?= htmlspecialchars($refDate) ?>"
+                            <input type="date" id="refDate" value="<?= htmlspecialchars($referenceDate) ?>"
                                 onchange="applyRefDate(this.value)"
                                 style="padding: 0.4rem 0.6rem; background-color: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; color-scheme: dark;"
                                 title="Calcula Valor Atual e Saldo Atual nesta data">
                         </div>
+                        <?php if ($hasRefDate): ?>
+                            <button class="btn btn-secondary" onclick="applyRefDate('')" title="Voltar para hoje"
+                                style="background-color: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.3); color: #fbbf24;">
+                                <i class="fas fa-rotate-left"></i> Hoje
+                            </button>
+                        <?php endif; ?>
                         <button class="btn btn-secondary" onclick="openSimulationModal()" style="background-color: #38bdf8; border-color: #38bdf8; color: white;">
                             <i class="fas fa-calculator"></i> Simulação
                         </button>
@@ -1501,7 +1501,7 @@ unset($p);
 
             lotsData.forEach(lot => {
                 const selected = data && data.lot_id == lot.id ? 'selected' : '';
-                
+
                 // Exclude lots that have already passed their slaughter/liquidation date
                 if (!selected && lot.exit_forecast_date) {
                     const [year, month, day] = lot.exit_forecast_date.split('-');
@@ -1514,6 +1514,12 @@ unset($p);
                 const availableVal = lot.available_value ? parseFloat(lot.available_value) : 0;
                 const avail = availableVal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
                 const availAnimals = lot.available_animals ? parseInt(lot.available_animals) : 0;
+
+                // Exclude lots with no head left to allocate
+                if (!selected && availAnimals <= 0) {
+                    return;
+                }
+
                 options += `<option value="${lot.id}" ${selected}>Lote ${lot.lot_number} - ${lot.breed} (Disp: ${avail} - Qtd: ${availAnimals})</option>`;
             });
 
@@ -2019,6 +2025,13 @@ unset($p);
             const titleText = document.getElementById('pageTitle').innerText;
             const logoUrl = new URL('assets/logo.png', window.location.href).href;
             const timestamp = new Date().toLocaleString('pt-BR');
+
+            // Reference date shown on the report (from the list's date input).
+            const refDateInput = document.getElementById('refDate');
+            const refDateValue = refDateInput ? refDateInput.value : '';
+            const refDateFormatted = refDateValue
+                ? refDateValue.split('-').reverse().join('/')
+                : new Date().toLocaleDateString('pt-BR');
             
             // Get totals
             const totalValInicial = document.getElementById('totalValInicial').innerText;
@@ -2186,6 +2199,7 @@ unset($p);
                     <img src="${logoUrl}" alt="Logo" class="logo">
                     <div class="title-block">
                         <h1>${titleText}</h1>
+                        <p>Data de referência: ${refDateFormatted}</p>
                         <p>Emitido em: ${timestamp}</p>
                     </div>
                 </div>
