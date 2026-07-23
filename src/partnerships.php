@@ -282,6 +282,18 @@ foreach ($allAllocations as $alloc) {
 // Store calculation memories
 $partnershipMemories = [];
 
+// Reference date for the "Valor Atual" / "Saldo Atual" columns. Defaults to today,
+// but the user can pick another date to see the balance as of that date.
+$todayStr = date('Y-m-d');
+$refDate = $todayStr;
+if (!empty($_GET['ref_date'])) {
+    $d = DateTime::createFromFormat('Y-m-d', $_GET['ref_date']);
+    if ($d && $d->format('Y-m-d') === $_GET['ref_date']) {
+        $refDate = $_GET['ref_date'];
+    }
+}
+$isDefaultRefDate = ($refDate === $todayStr);
+
 // Calculate Values
 foreach ($partnerships as &$p) {
     $p['current_value_calc'] = 0;
@@ -316,7 +328,14 @@ foreach ($partnerships as &$p) {
 
     // Calculate State (Rolling Balance)
     // $lots and $liquidations are already defined above (lines 197, 206)
-    $displayDate = ($latestLiquidationDate && $latestLiquidationDate > $today) ? $latestLiquidationDate : $today;
+    // On the default (today) view keep the convenience of jumping to a future
+    // liquidation date; when the user picks a specific reference date, snapshot
+    // the balance strictly at that date.
+    if ($isDefaultRefDate) {
+        $displayDate = ($latestLiquidationDate && $latestLiquidationDate > $refDate) ? $latestLiquidationDate : $refDate;
+    } else {
+        $displayDate = $refDate;
+    }
     $calcState = calculatePartnershipState($p, $lots, $liquidations, $displayDate);
 
     // Update Partnership Values
@@ -440,14 +459,11 @@ foreach ($partnerships as &$p) {
     }
 
     // Second pass: compute per-lot balances (distributes unassigned liquidations proportionally).
-    // Use the latest liquidation date so newly entered liquidations immediately
-    // update cattle balances even when their date is ahead of the server date.
-    $lotBalanceTargetDate = $today;
-    foreach ($liquidations as $liq) {
-        if ($liq['date'] > $lotBalanceTargetDate) {
-            $lotBalanceTargetDate = $liq['date'];
-        }
-    }
+    // Anchor to the reference date used for the current balance ($displayDate). On the
+    // default (today) view this already jumps to a future liquidation date so newly entered
+    // liquidations update cattle balances immediately; when the user picks a reference date,
+    // the per-lot balances are computed strictly as of that date.
+    $lotBalanceTargetDate = $displayDate;
 
     // Head (cattle) balances are computed independently of the lot's projected_value
     // so they stay correct even after a liquidation rewrites a lot's projected_value
@@ -517,12 +533,8 @@ foreach ($partnerships as &$p) {
     // $p['projected_balance'] = ... (already set above via calculateProjectedBalance)
 
     // --- Build Memory ---
-    $memoryTargetDate = $today;
-    foreach ($liquidations as $liq) {
-        if ($liq['date'] > $memoryTargetDate) {
-            $memoryTargetDate = $liq['date'];
-        }
-    }
+    // Show the calculation history up to the same reference date as the current balance.
+    $memoryTargetDate = $displayDate;
     $memoryState = calculatePartnershipState($p, $lots, $liquidations, $memoryTargetDate);
     $memory['events'] = $memoryState['events'];
     $memory['current_balance'] = $p['current_balance'];
@@ -661,8 +673,8 @@ foreach ($partnerships as &$p) {
             }
 
             // Totals (weighted rate and slaughtered head) consider only
-            // liquidations effective up to today for the backend summary.
-            if ($liqRef['date'] <= $today) {
+            // liquidations effective up to the reference date for the backend summary.
+            if ($liqRef['date'] <= $displayDate) {
                 $totalWeightedRate += floatval($liqRef['rate']) * floatval($liqRef['amount_principal']);
                 $totalPrincipal += floatval($liqRef['amount_principal']);
                 $total_liquidated_quantity += intval($liqRef['estimated_quantity']);
@@ -679,7 +691,7 @@ foreach ($partnerships as &$p) {
         $totalPaidToDate = 0;
         $settlementDate = null;
         foreach ($liquidations as $liq) {
-            if ($liq['date'] <= $today) {
+            if ($liq['date'] <= $displayDate) {
                 $totalPaidToDate += floatval($liq['amount_total']);
                 if (!empty($liq['is_settlement']) || floatval($liq['balance_after']) <= 0.05) {
                     $settlementDate = $liq['date'];
@@ -1076,6 +1088,15 @@ unset($p);
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <h2 style="margin: 0;" id="pageTitle">Parcerias Ativas</h2>
                     <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                            <label for="refDate" style="color: #94a3b8; font-size: 0.8rem;">
+                                <i class="fas fa-calendar-day"></i> Valores na data
+                            </label>
+                            <input type="date" id="refDate" value="<?= htmlspecialchars($refDate) ?>"
+                                onchange="applyRefDate(this.value)"
+                                style="padding: 0.4rem 0.6rem; background-color: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; color-scheme: dark;"
+                                title="Calcula Valor Atual e Saldo Atual nesta data">
+                        </div>
                         <button class="btn btn-secondary" onclick="openSimulationModal()" style="background-color: #38bdf8; border-color: #38bdf8; color: white;">
                             <i class="fas fa-calculator"></i> Simulação
                         </button>
@@ -1944,6 +1965,19 @@ unset($p);
             $('#filterLot').val('').trigger('change');
             $('#filterStatus').val('active').trigger('change');
             $('#filterType').val('all').trigger('change');
+        }
+
+        // Reload the page recalculating "Valor Atual" / "Saldo Atual" at the chosen date.
+        function applyRefDate(value) {
+            const params = new URLSearchParams(window.location.search);
+            const today = '<?= $todayStr ?>';
+            if (!value || value === today) {
+                params.delete('ref_date');
+            } else {
+                params.set('ref_date', value);
+            }
+            const qs = params.toString();
+            window.location.href = window.location.pathname + (qs ? '?' + qs : '');
         }
 
         // toggleClosedPartnerships removed as it was replaced by filterStatus dropdown
