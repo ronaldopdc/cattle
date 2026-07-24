@@ -1,6 +1,175 @@
 <?php
 // This file should be included in partnerships.php after the get_available_lots handler
 
+require_once __DIR__ . '/document_analysis.php';
+
+// Carrega os dados da parceria necessários para validar os documentos anexados
+function loadPartnershipForValidation($pdo, $partnership_id)
+{
+    $sql = "SELECT p.id, p.owner_id, p.investor_id, p.confinamento_id, p.start_date,
+                   own.cpf AS owner_doc, own.name AS owner_name,
+                   conf.cpf AS conf_doc, conf.name AS conf_name
+            FROM partnerships p
+            JOIN partners own ON p.owner_id = own.id
+            LEFT JOIN partners conf ON p.confinamento_id = conf.id
+            WHERE p.id = ?";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$partnership_id]);
+    $p = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$p) {
+        return null;
+    }
+
+    $lotStmt = $pdo->prepare(
+        "SELECT l.lot_number, l.animal_count, l.protocol_date
+         FROM partnership_lots pl
+         JOIN lots l ON pl.lot_id = l.id
+         WHERE pl.partnership_id = ?"
+    );
+    $lotStmt->execute([$partnership_id]);
+    $lots = $lotStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $total = 0;
+    foreach ($lots as $l) {
+        $total += (int) $l['animal_count'];
+    }
+
+    return [
+        'id' => $p['id'],
+        'owner_doc' => $p['owner_doc'],
+        'owner_name' => $p['owner_name'],
+        'confinamento_doc' => $p['conf_doc'],
+        'confinamento_name' => $p['conf_name'],
+        // Valida emitente = proprietário apenas quando proprietário != investidor.
+        // Em parceria própria (proprietário == investidor) valida-se só o confinamento.
+        'validate_owner' => ($p['owner_id'] != $p['investor_id']),
+        'lots' => $lots,
+        'total_animals' => $total,
+    ];
+}
+
+// API endpoint: upload de MÚLTIPLOS arquivos com análise e validação automática.
+// Classifica cada arquivo (NF / GTA / Pesagem), valida contra a parceria e,
+// se todas as validações passarem, grava os anexos com a descrição automática.
+// Em caso de qualquer inconsistência, NADA é gravado (bloqueio atômico).
+if (isset($_GET['action']) && $_GET['action'] === 'upload_attachments_batch') {
+    header('Content-Type: application/json');
+
+    try {
+        if (!isset($_FILES['files']) || !isset($_POST['partnership_id'])) {
+            echo json_encode(['success' => false, 'message' => 'Arquivos ou ID da parceria não fornecidos']);
+            exit;
+        }
+
+        $partnership_id = $_POST['partnership_id'];
+        $partnership = loadPartnershipForValidation($pdo, $partnership_id);
+        if (!$partnership) {
+            echo json_encode(['success' => false, 'message' => 'Parceria não encontrada']);
+            exit;
+        }
+
+        $allowed_types = [
+            'application/pdf',
+            'image/jpeg', 'image/jpg', 'image/png', 'image/gif',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/zip'
+        ];
+
+        // Normaliza a estrutura de $_FILES['files'] (upload múltiplo)
+        $files = [];
+        $f = $_FILES['files'];
+        $count = is_array($f['name']) ? count($f['name']) : 0;
+        for ($i = 0; $i < $count; $i++) {
+            if ($f['error'][$i] !== UPLOAD_ERR_OK) {
+                echo json_encode(['success' => false, 'message' => 'Erro no upload do arquivo ' . $f['name'][$i]]);
+                exit;
+            }
+            if (!in_array($f['type'][$i], $allowed_types)) {
+                echo json_encode(['success' => false, 'message' => 'Tipo de arquivo não permitido: ' . $f['name'][$i]]);
+                exit;
+            }
+            if ($f['size'][$i] > 10 * 1024 * 1024) {
+                echo json_encode(['success' => false, 'message' => 'Arquivo muito grande (máx 10MB): ' . $f['name'][$i]]);
+                exit;
+            }
+            $files[] = [
+                'name' => $f['name'][$i],
+                'type' => $f['type'][$i],
+                'size' => $f['size'][$i],
+                'data' => file_get_contents($f['tmp_name'][$i]),
+            ];
+        }
+
+        if (empty($files)) {
+            echo json_encode(['success' => false, 'message' => 'Nenhum arquivo recebido']);
+            exit;
+        }
+
+        // Analisa cada documento
+        $analyzed = [];
+        foreach ($files as $file) {
+            $analyzed[] = analyzeSingleDocument($file['name'], $file['type'], $file['data']);
+        }
+
+        // Valida o conjunto contra a parceria
+        $result = validatePartnershipDocuments($partnership, $analyzed);
+
+        if (!$result['ok']) {
+            echo json_encode([
+                'success' => false,
+                'blocked' => true,
+                'message' => 'Anexos bloqueados: inconsistências encontradas.',
+                'errors' => $result['errors'],
+                'ignored' => $result['ignored'],
+                'docs' => $result['docs'],
+            ]);
+            exit;
+        }
+
+        // Validações OK -> grava apenas os documentos RECONHECIDOS (NF/GTA/pesagem).
+        // Arquivos não reconhecidos (comprovantes, contratos, imagens) são ignorados.
+        $pdo->beginTransaction();
+        $sql = "INSERT INTO partnership_attachments (partnership_id, filename, file_data, file_type, file_size, description)
+                VALUES (?, ?, ?, ?, ?, ?)";
+        $stmt = $pdo->prepare($sql);
+        $saved = 0;
+        foreach ($files as $idx => $file) {
+            $doc = $analyzed[$idx];
+            if ($doc['tipo'] === DOC_DESCONHECIDO || empty($doc['readable'])) {
+                continue; // ignora não reconhecidos
+            }
+            $stmt->execute([
+                $partnership_id,
+                $file['name'],
+                $file['data'],
+                $file['type'],
+                $file['size'],
+                descricaoParaTipo($doc),
+            ]);
+            $saved++;
+        }
+        $pdo->commit();
+
+        $msg = "$saved anexo(s) enviado(s) e validado(s) com sucesso.";
+        if (!empty($result['ignored'])) {
+            $msg .= ' ' . count($result['ignored']) . ' arquivo(s) ignorado(s) (não reconhecidos como NF/GTA/pesagem).';
+        }
+        echo json_encode([
+            'success' => true,
+            'message' => $msg,
+            'ignored' => $result['ignored'],
+            'docs' => $result['docs'],
+        ]);
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        echo json_encode(['success' => false, 'message' => 'Erro ao processar anexos: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
 // API endpoint for uploading attachments
 if (isset($_GET['action']) && $_GET['action'] === 'upload_attachment') {
     header('Content-Type: application/json');

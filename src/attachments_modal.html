@@ -14,22 +14,28 @@
             <h3 style="margin-top: 0; color: #e2e8f0; font-size: 1.1rem;">Enviar Novo Anexo</h3>
             <form id="uploadForm" enctype="multipart/form-data">
                 <div class="form-group">
-                    <label style="color: #cbd5e1;">Arquivo</label>
-                    <input type="file" id="attachment-file" required accept=".pdf,.jpg,.jpeg,.png,.gif,.docx,.xlsx,.zip"
+                    <label style="color: #cbd5e1;">Arquivo(s)</label>
+                    <input type="file" id="attachment-file" required multiple
+                        accept=".pdf,.jpg,.jpeg,.png,.gif,.docx,.xlsx,.zip"
                         style="width: 100%; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #e2e8f0;">
                     <small style="color: #94a3b8; display: block; margin-top: 0.5rem;">Formatos permitidos: PDF, JPG,
-                        PNG, GIF, DOCX, XLSX, ZIP (máx 10MB)</small>
+                        PNG, GIF, DOCX, XLSX, ZIP (máx 10MB).<br>
+                        Ao selecionar <strong>vários arquivos</strong>, o sistema identifica automaticamente
+                        NF, GTA e Relatório de Pesagem, valida contra a parceria e preenche a descrição.</small>
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="single-description-group">
                     <label style="color: #cbd5e1;">Descrição (opcional)</label>
                     <textarea id="attachment-description" rows="2"
                         style="width: 100%; padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: #e2e8f0; resize: vertical;"
                         placeholder="Descrição do anexo..."></textarea>
                 </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                <button type="submit" id="attachment-submit-btn" class="btn btn-primary" style="width: 100%;">
                     <i class="fas fa-upload"></i> Enviar Anexo
                 </button>
             </form>
+
+            <!-- Resultado da análise/validação (upload múltiplo) -->
+            <div id="analysis-result" style="display: none; margin-top: 1rem;"></div>
         </div>
 
         <!-- Attachments List -->
@@ -55,6 +61,72 @@
     function closeAttachmentsModal() {
         document.getElementById('attachmentsModal').style.display = 'none';
         document.getElementById('uploadForm').reset();
+        resetAnalysisUI();
+    }
+
+    function resetAnalysisUI() {
+        const box = document.getElementById('analysis-result');
+        box.style.display = 'none';
+        box.innerHTML = '';
+    }
+
+    // Alterna a UI conforme a quantidade de arquivos selecionados
+    document.getElementById('attachment-file').addEventListener('change', function () {
+        const multiple = this.files.length > 1;
+        const descGroup = document.getElementById('single-description-group');
+        const btn = document.getElementById('attachment-submit-btn');
+        descGroup.style.display = multiple ? 'none' : '';
+        if (multiple) {
+            btn.innerHTML = '<i class="fas fa-magnifying-glass-chart"></i> Analisar e Enviar ' + this.files.length + ' Anexos';
+        } else {
+            btn.innerHTML = '<i class="fas fa-upload"></i> Enviar Anexo';
+        }
+        resetAnalysisUI();
+    });
+
+    const TIPO_LABELS = {
+        nota_fiscal: 'Nota Fiscal',
+        gta: 'GTA',
+        pesagem: 'Relatório de Pesagem',
+        desconhecido: 'Tipo desconhecido'
+    };
+
+    // Renderiza o resultado da análise (documentos detectados + erros de validação)
+    function renderAnalysis(docs, errors, ignored) {
+        const box = document.getElementById('analysis-result');
+        let html = '';
+
+        const reconhecidos = Array.isArray(docs) ? docs.filter(d => d.tipo !== 'desconhecido' && d.readable) : [];
+        if (reconhecidos.length) {
+            html += '<div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 6px; margin-bottom: 0.75rem;">';
+            html += '<div style="color:#e2e8f0; font-weight:600; margin-bottom:0.5rem;">Documentos identificados</div>';
+            reconhecidos.forEach(d => {
+                const label = TIPO_LABELS[d.tipo] || d.tipo;
+                html += `<div style="display:flex; justify-content:space-between; gap:0.5rem; padding:0.35rem 0; border-bottom:1px solid rgba(255,255,255,0.05);">
+                    <span style="color:#cbd5e1; font-size:0.85rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${d.filename}</span>
+                    <span style="color:#22c55e; font-size:0.85rem; font-weight:500; white-space:nowrap;">${d.descricao || label}</span>
+                </div>`;
+            });
+            html += '</div>';
+        }
+
+        if (Array.isArray(ignored) && ignored.length) {
+            html += '<div style="background: rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); padding:0.75rem 1rem; border-radius:6px; margin-bottom:0.75rem;">';
+            html += '<div style="color:#f59e0b; font-size:0.85rem;"><i class="fas fa-circle-info"></i> Ignorado(s) (não é NF/GTA/pesagem): '
+                + ignored.map(f => `<span style="color:#fcd34d;">${f}</span>`).join(', ') + '</div>';
+            html += '</div>';
+        }
+
+        if (Array.isArray(errors) && errors.length) {
+            html += '<div style="background: rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); padding:1rem; border-radius:6px;">';
+            html += '<div style="color:#ef4444; font-weight:600; margin-bottom:0.5rem;"><i class="fas fa-triangle-exclamation"></i> Upload bloqueado — corrija as inconsistências:</div>';
+            html += '<ul style="margin:0; padding-left:1.25rem; color:#fecaca; font-size:0.85rem;">';
+            errors.forEach(e => { html += `<li style="margin-bottom:0.25rem;">${e}</li>`; });
+            html += '</ul></div>';
+        }
+
+        box.innerHTML = html;
+        box.style.display = html ? 'block' : 'none';
     }
 
     // Close modal when clicking outside
@@ -152,15 +224,25 @@
         e.preventDefault();
 
         const fileInput = document.getElementById('attachment-file');
-        const description = document.getElementById('attachment-description').value;
-
         if (!fileInput.files.length) {
             alert('Por favor, selecione um arquivo');
             return;
         }
 
+        resetAnalysisUI();
+
+        if (fileInput.files.length > 1) {
+            await uploadMultipleFiles(fileInput.files);
+        } else {
+            await uploadSingleFile(fileInput.files[0]);
+        }
+    });
+
+    async function uploadSingleFile(file) {
+        const description = document.getElementById('attachment-description').value;
+
         const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
+        formData.append('file', file);
         formData.append('partnership_id', currentPartnershipIdForModal);
         formData.append('description', description);
 
@@ -183,5 +265,44 @@
             console.error('Error uploading attachment:', error);
             alert('Erro ao enviar arquivo');
         }
-    });
+    }
+
+    async function uploadMultipleFiles(files) {
+        const btn = document.getElementById('attachment-submit-btn');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analisando documentos...';
+
+        const formData = new FormData();
+        formData.append('partnership_id', currentPartnershipIdForModal);
+        for (let i = 0; i < files.length; i++) {
+            formData.append('files[]', files[i]);
+        }
+
+        try {
+            const response = await fetch('partnerships.php?action=upload_attachments_batch', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+
+            renderAnalysis(result.docs || [], result.errors || [], result.ignored || []);
+
+            if (result.success) {
+                document.getElementById('uploadForm').reset();
+                document.getElementById('single-description-group').style.display = '';
+                loadAttachments(currentPartnershipIdForModal);
+                alert(result.message);
+            } else if (!result.blocked) {
+                // Erro que não é de validação (ex: tipo/tamanho inválido)
+                alert('Erro: ' + (result.message || 'Falha ao enviar anexos'));
+            }
+        } catch (error) {
+            console.error('Error uploading attachments:', error);
+            alert('Erro ao enviar anexos');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
 </script>

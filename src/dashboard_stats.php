@@ -194,12 +194,11 @@ $recent_liquidations_list = [];
 foreach ($partnerships as $p) {
     $liquidations = $partnershipLiquidations[$p['id']] ?? [];
     $lots = $partnershipLots[$p['id']] ?? [];
-    $settlementDisplayDate = null;
+    $latestLiquidationDate = null;
     foreach ($liquidations as $liq) {
-        if (!empty($liq['is_settlement']) || floatval($liq['balance_after']) <= 0.05) {
-            if (!$settlementDisplayDate || $liq['date'] > $settlementDisplayDate) {
-                $settlementDisplayDate = $liq['date'];
-            }
+        // Match partnerships.php: future liquidations already entered affect the default display balance.
+        if (!empty($liq['date']) && (!$latestLiquidationDate || $liq['date'] > $latestLiquidationDate)) {
+            $latestLiquidationDate = $liq['date'];
         }
     }
 
@@ -376,8 +375,8 @@ foreach ($partnerships as $p) {
     if ($endDateParam < $refDate) {
         $refDate = $endDateParam;
     }
-    if ($settlementDisplayDate && $settlementDisplayDate > $refDate) {
-        $refDate = $settlementDisplayDate;
+    if ($latestLiquidationDate && $latestLiquidationDate > $refDate) {
+        $refDate = $latestLiquidationDate;
     }
     $calcStateRef = calculatePartnershipState($p, $lots, $liquidations, $refDate);
     $current_balance = $calcStateRef['current_balance'];
@@ -935,6 +934,13 @@ $todayReportDate = date('Y-m-d');
 foreach ($reportPartnerships as $reportP) {
     $reportLiquidations = $partnershipLiquidations[$reportP['id']] ?? [];
     $reportLots = $partnershipLots[$reportP['id']] ?? [];
+    $reportReferenceDate = $todayReportDate;
+    foreach ($reportLiquidations as $reportLiqRef) {
+        // Keep the modal report aligned with the dashboard card and partnerships list.
+        if (!empty($reportLiqRef['date']) && $reportLiqRef['date'] > $reportReferenceDate) {
+            $reportReferenceDate = $reportLiqRef['date'];
+        }
+    }
 
     $reportLotNumberById = [];
     foreach ($reportLots as $reportLot) {
@@ -1006,13 +1012,13 @@ foreach ($reportPartnerships as $reportP) {
         ];
     }
 
-    $reportCurrentState = calculatePartnershipState($reportP, $reportLots, $reportLiquidations, $todayReportDate);
+    $reportCurrentState = calculatePartnershipState($reportP, $reportLots, $reportLiquidations, $reportReferenceDate);
     $reportCurrentBalance = max(0, floatval($reportCurrentState['current_balance']));
     if ($reportCurrentBalance < 0.01 || empty($reportLots)) {
         continue;
     }
 
-    $reportHeadBalanceMap = computeLotHeadBalances($reportHeadLots, $reportLiquidations, $todayReportDate, $reportAveragePrincipalPerAnimal);
+    $reportHeadBalanceMap = computeLotHeadBalances($reportHeadLots, $reportLiquidations, $reportReferenceDate, $reportAveragePrincipalPerAnimal);
     $reportTotalRemainingHead = 0;
     $reportRemainingHeadByLot = [];
     foreach ($reportLots as $reportLot) {
