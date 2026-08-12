@@ -451,16 +451,203 @@ function extractGtaRefFromNf($text)
     return null;
 }
 
-// Qtd de animais na NF: soma das quantidades das linhas de produto
-// ("<UN> <QUANT>,0000 <VLR_UNIT> <VLR_TOTAL>", UN = CB/CAB/UN)
+// Converte número no formato brasileiro ("3.500,0000") para float
+function brNumber($s)
+{
+    return (float) str_replace(',', '.', str_replace('.', '', trim((string) $s)));
+}
+
+// Posição de um rótulo no texto normalizado, tolerando espaços extras entre as
+// letras (alguns geradores de DANFE emitem "DADOS ADI CI ONAI S").
+function findLabelPos($norm, $label, $offset = 0)
+{
+    $parts = [];
+    foreach (str_split(str_replace(' ', '', $label)) as $ch) {
+        $parts[] = preg_quote($ch, '/');
+    }
+    $re = '/' . implode('\s*', $parts) . '/';
+    if (preg_match($re, $norm, $m, PREG_OFFSET_CAPTURE, $offset)) {
+        return $m[0][1];
+    }
+    return false;
+}
+
+// Recorta a seção "DADOS DOS PRODUTOS / SERVIÇOS" da DANFE
+function nfProductsScope($norm)
+{
+    $ini = findLabelPos($norm, 'DADOS DOS PRODUTOS');
+    if ($ini === false) {
+        $ini = findLabelPos($norm, 'DADOS DO PRODUTO');
+    }
+    if ($ini === false) {
+        $ini = findLabelPos($norm, 'DESCRICAO DO PRODUTO');
+    }
+    if ($ini === false) {
+        return $norm;
+    }
+    $fim = findLabelPos($norm, 'DADOS ADICIONAIS', $ini);
+    return $fim !== false ? substr($norm, $ini, $fim - $ini) : substr($norm, $ini);
+}
+
+// Valor total dos produtos declarado no quadro "CÁLCULO DO IMPOSTO"
+function extractNfValorProdutos($norm)
+{
+    foreach (['VALOR TOTAL DOS PRODUTOS', 'V. TOTAL PRODUTOS', 'VALOR TOTAL PRODUTOS'] as $label) {
+        $pos = findLabelPos($norm, $label);
+        if ($pos === false) {
+            continue;
+        }
+        // o valor pode estar logo após o rótulo ou algumas linhas abaixo
+        // (layout em colunas), então pegamos o maior valor da vizinhança
+        $trecho = substr($norm, $pos, 400);
+        if (preg_match_all('/(?<![\d,.])(\d{1,3}(?:\.\d{3})*,\d{2})(?![\d,.])/', $trecho, $m)) {
+            $vals = array_map('brNumber', $m[1]);
+            $max = max($vals);
+            if ($max > 0) {
+                return $max;
+            }
+        }
+    }
+    return null;
+}
+
+// Extrai todos os números do trecho com N casas decimais (formato brasileiro)
+function brNumbersWithDecimals($scope, $minDec, $maxDec)
+{
+    $out = [];
+    $re = '/(?<![\d,.])(\d{1,3}(?:\.\d{3})*,\d{' . $minDec . ',' . $maxDec . '})(?![\d,.])/';
+    if (preg_match_all($re, $scope, $m)) {
+        foreach ($m[1] as $v) {
+            $f = brNumber($v);
+            if ($f > 0) {
+                $out[] = $f;
+            }
+        }
+    }
+    return $out;
+}
+
+// Contagem por reconciliação aritmética: QUANT. e VALOR UNITÁRIO saem com 3-4
+// casas decimais e VALOR TOTAL com 2, mas o pdftotext embaralha as colunas de
+// formas diferentes em cada gerador de DANFE. Em vez de depender da posição,
+// procuramos a combinação de pares (quantidade x preço = total de linha) cuja
+// soma dos totais bate exatamente com o VALOR TOTAL DOS PRODUTOS da nota.
+// Só devolve resultado quando fecha, evitando contagem parcial silenciosa.
+function nfAnimalCountByArithmetic($scope, $valorProdutos)
+{
+    if ($valorProdutos === null || $valorProdutos <= 0) {
+        return 0;
+    }
+    $fatores = array_slice(brNumbersWithDecimals($scope, 3, 4), 0, 60);
+    $totais  = array_slice(brNumbersWithDecimals($scope, 2, 2), 0, 60);
+    if (count($fatores) < 2 || empty($totais)) {
+        return 0;
+    }
+
+    // Pares plausíveis: a menor parcela é a quantidade (cabeças) e a maior o
+    // preço por cabeça. O preço mínimo de R$100 descarta notas por peso (kg),
+    // em que a "quantidade" seria a arroba/quilo e não o nº de animais.
+    $pares = [];
+    foreach ($fatores as $i => $a) {
+        foreach ($fatores as $j => $b) {
+            if ($j <= $i) {
+                continue;
+            }
+            $qtd   = min($a, $b);
+            $preco = max($a, $b);
+            if ($preco < 100 || $qtd < 1 || $qtd > 5000 || abs($qtd - round($qtd)) > 0.001) {
+                continue;
+            }
+            foreach ($totais as $k => $t) {
+                if (abs($qtd * $preco - $t) <= max(0.05, $t * 0.0001)) {
+                    $pares[] = ['f' => [$i, $j], 't' => $k, 'qtd' => (int) round($qtd), 'val' => $t];
+                }
+            }
+        }
+    }
+    if (empty($pares)) {
+        return 0;
+    }
+
+    $melhor = 0;
+    $passos = 0;
+    $busca = function ($idx, $usadosF, $usadosT, $soma, $cabecas)
+        use (&$busca, $pares, $valorProdutos, &$melhor, &$passos) {
+        if ($melhor > 0 || ++$passos > 20000) {
+            return;
+        }
+        if (abs($soma - $valorProdutos) <= max(0.05, $valorProdutos * 0.0001) && $cabecas > 0) {
+            $melhor = $cabecas;
+            return;
+        }
+        if ($idx >= count($pares) || $soma > $valorProdutos + 0.05) {
+            return;
+        }
+        $p = $pares[$idx];
+        $livre = !isset($usadosF[$p['f'][0]]) && !isset($usadosF[$p['f'][1]]) && !isset($usadosT[$p['t']]);
+        if ($livre) {
+            $uf = $usadosF;
+            $uf[$p['f'][0]] = true;
+            $uf[$p['f'][1]] = true;
+            $ut = $usadosT;
+            $ut[$p['t']] = true;
+            $busca($idx + 1, $uf, $ut, $soma + $p['val'], $cabecas + $p['qtd']);
+        }
+        $busca($idx + 1, $usadosF, $usadosT, $soma, $cabecas);
+    };
+    $busca(0, [], [], 0.0, 0);
+
+    return $melhor;
+}
+
+// Qtd de animais na NF: soma das quantidades das linhas de produto.
+//
+// Não dependemos da coluna UN (varia entre DANFEs: CB, CBC, CAB, UN) nem da
+// posição dos números na linha, porque o pdftotext -layout quebra a tabela de
+// produtos de forma diferente em cada gerador de DANFE. A conferência é feita
+// pela aritmética da própria nota (quantidade x preço = total).
 function extractNfAnimalCount($text)
 {
-    $total = 0;
-    if (preg_match_all('/\b(?:CB|CAB|UN)\s+(\d{1,5})[,\.]\d{3,4}\s+[\d\.]+[,\.]\d{2,4}\s+[\d\.]+[,\.]\d{2}/', $text, $m)) {
+    $norm  = normalizeText($text);
+    $scope = nfProductsScope($norm);
+
+    // 1) Reconciliação com o VALOR TOTAL DOS PRODUTOS (independe do layout)
+    $total = nfAnimalCountByArithmetic($scope, extractNfValorProdutos($norm));
+    if ($total > 0) {
+        return $total;
+    }
+
+    // 2) Trinca "<QUANT> <VLR_UNIT> <VLR_TOTAL>" na mesma linha, validada por
+    //    quantidade x preço = total da linha
+    $num = '\d{1,3}(?:\.\d{3})*';
+    $re = '/(?<![\d,.])(' . $num . '(?:,\d{1,4})?)\s+(' . $num . ',\d{2,10})\s+(' . $num . ',\d{2})(?![\d,.])/';
+    if (preg_match_all($re, $scope, $m, PREG_SET_ORDER)) {
+        foreach ($m as $set) {
+            $qtd  = brNumber($set[1]);
+            $unit = brNumber($set[2]);
+            $vlr  = brNumber($set[3]);
+            if ($qtd <= 0 || $unit < 100 || $vlr <= 0 || $qtd > 5000) {
+                continue;
+            }
+            if (abs($qtd * $unit - $vlr) > max(0.05, $vlr * 0.0001)) {
+                continue;
+            }
+            $total += (int) round($qtd);
+        }
+    }
+    if ($total > 0) {
+        return $total;
+    }
+
+    // 3) Reserva (OCR com dígitos imprecisos, em que a conta não fecha): usa a
+    //    coluna UN como âncora, quando ficou na mesma linha da quantidade.
+    $reUn = '/\b(?:CBC|CAB|CB|UNID|UND|UN)\s+(\d{1,5})[,\.]\d{3,4}\s+[\d\.]+[,\.]\d{2,10}\s+[\d\.]+[,\.]\d{2}/';
+    if (preg_match_all($reUn, $scope, $m)) {
         foreach ($m[1] as $q) {
             $total += (int) $q;
         }
     }
+
     return $total;
 }
 
