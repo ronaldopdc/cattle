@@ -195,10 +195,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'add_liquidation') {
             exit;
         }
 
-        // Permission check
-        $isInvestor = ($_SESSION['partner_id'] && $_SESSION['partner_id'] == $partnership['investor_id']);
-        if ($partnership['created_by'] != $_SESSION['user_id'] && $_SESSION['role'] !== 'admin' && !$isInvestor) {
-            echo json_encode(['success' => false, 'message' => 'Acesso negado. Você não tem permissão para esta ação.']);
+        // Permission check: only the user who registered the partnership (or an
+        // admin) can liquidate it.
+        if (!can_edit_record($partnership['created_by'])) {
+            echo json_encode(['success' => false, 'message' => 'Acesso negado. Somente o usuário que cadastrou a parceria pode realizar esta ação.']);
             exit;
         }
 
@@ -616,10 +616,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete_liquidation') {
             exit;
         }
 
-        // Permission check
-        $isInvestor = ($_SESSION['partner_id'] && $_SESSION['partner_id'] == $pData['investor_id']);
-        if ($pData['created_by'] != $_SESSION['user_id'] && $_SESSION['role'] !== 'admin' && !$isInvestor) {
-            echo json_encode(['success' => false, 'message' => 'Acesso negado. Você não tem permissão para esta ação.']);
+        // Permission check: only the user who registered the partnership (or an
+        // admin) can delete its liquidations.
+        if (!can_edit_record($pData['created_by'])) {
+            echo json_encode(['success' => false, 'message' => 'Acesso negado. Somente o usuário que cadastrou a parceria pode realizar esta ação.']);
             exit;
         }
 

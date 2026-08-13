@@ -17,22 +17,18 @@ foreach ($users as $u) {
 line();
 
 // Helper: replicate the dashboard_stats.php clause selection logic.
-function computeWhere($userRole, $userPartnerId, $getPartnerId = null) {
+// $userPartnerIds is the full list of partners linked to the user.
+function computeWhere($userRole, array $userPartnerIds, $getPartnerId = null) {
     $whereClause = "1=1";
     $params = [];
     if ($userRole === 'admin') {
-        $selectedPartnerId = $getPartnerId !== null ? $getPartnerId : ($userPartnerId ?: 'all');
+        $defaultPartnerId = count($userPartnerIds) === 1 ? $userPartnerIds[0] : 'all';
+        $selectedPartnerId = $getPartnerId !== null ? $getPartnerId : $defaultPartnerId;
         if ($selectedPartnerId !== 'all') {
-            $whereClause = "(p.owner_id = ? OR p.investor_id = ? OR p.confinamento_id = ?)";
-            $params = [$selectedPartnerId, $selectedPartnerId, $selectedPartnerId];
+            [$whereClause, $params] = partner_scope_clause([intval($selectedPartnerId)]);
         }
     } else {
-        if (!$userPartnerId) {
-            $whereClause = "1=0";
-        } else {
-            $whereClause = "(p.owner_id = ? OR p.investor_id = ? OR p.confinamento_id = ?)";
-            $params = [$userPartnerId, $userPartnerId, $userPartnerId];
-        }
+        [$whereClause, $params] = partner_scope_clause($userPartnerIds);
     }
     return [$whereClause, $params];
 }
@@ -60,15 +56,19 @@ if ($adminId !== null) {
     // partner_id (ronaldo -> partner 1). If the admin has no partner_id it
     // defaults to 'all'. Either way it is a well-defined admin view, and the
     // filter is rendered because role === 'admin'.
-    [$w, $p] = computeWhere($_SESSION['role'] ?? null, $_SESSION['partner_id'] ?? null, null);
-    $pid = $_SESSION['partner_id'] ?? null;
-    if ($pid) {
+    $sessionPartnerIds = $_SESSION['partner_ids'] ?? [];
+    line("  linked partners: " . (empty($sessionPartnerIds) ? '(none)' : implode(', ', $sessionPartnerIds)));
+    check("partner_ids hydrated as an array", is_array($_SESSION['partner_ids'] ?? null));
+
+    [$w, $p] = computeWhere($_SESSION['role'] ?? null, $sessionPartnerIds, null);
+    if (count($sessionPartnerIds) === 1) {
+        $pid = $sessionPartnerIds[0];
         check("admin default scoped to linked partner ($pid)", $p === [$pid, $pid, $pid]);
     } else {
-        check("admin with no partner defaults to all (1=1)", $w === "1=1");
+        check("admin with none/multiple partners defaults to all (1=1)", $w === "1=1");
     }
     // And the admin can always switch to "Todos os Parceiros".
-    [$wAll, $pAll] = computeWhere($_SESSION['role'] ?? null, $_SESSION['partner_id'] ?? null, 'all');
+    [$wAll, $pAll] = computeWhere($_SESSION['role'] ?? null, $sessionPartnerIds, 'all');
     check("admin can select 'all' -> 1=1", $wAll === "1=1");
 } else {
     line("  (no admin user in DB to test hydration)");
@@ -77,25 +77,47 @@ line();
 
 line("=== TEST 2: unrecognized/empty role no longer leaks all partnerships ===");
 // Before the fix, role=null fell through to the default 1=1. Now it is restricted.
-[$w, $p] = computeWhere(null, 5, null); // null role, has a partner_id
-check("null role with partner_id -> restricted clause (NOT 1=1)", $w !== "1=1");
-check("null role with partner_id -> filtered by partner", strpos($w, "owner_id") !== false);
+[$w, $p] = computeWhere(null, [5], null); // null role, has a partner
+check("null role with partner -> restricted clause (NOT 1=1)", $w !== "1=1");
+check("null role with partner -> filtered by partner", strpos($w, "owner_id") !== false);
 
-[$w2, $p2] = computeWhere(null, null, null); // null role, no partner
+[$w2, $p2] = computeWhere(null, [], null); // null role, no partner
 check("null role, no partner -> 1=0 (sees nothing)", $w2 === "1=0");
 line();
 
 line("=== TEST 3: normal 'user' role still restricted to own partner ===");
-[$w3, $p3] = computeWhere('user', 7, null);
+[$w3, $p3] = computeWhere('user', [7], null);
 check("user role -> filtered clause", strpos($w3, "owner_id") !== false && $p3 === [7,7,7]);
 line();
 
 line("=== TEST 4: admin explicitly filtering by a partner ===");
-[$w4, $p4] = computeWhere('admin', null, '3');
-check("admin + ?partner_id=3 -> filtered by 3", $p4 === ['3','3','3']);
+[$w4, $p4] = computeWhere('admin', [], '3');
+check("admin + ?partner_id=3 -> filtered by 3", $p4 === [3,3,3]);
 line();
 
-line("=== TEST 5: DB sanity - all users have a non-null role ===");
+line("=== TEST 5: user linked to SEVERAL partners sees all of them ===");
+[$w5, $p5] = computeWhere('user', [4, 9, 12], null);
+check("multi-partner clause uses IN (...)", substr_count($w5, "IN (?, ?, ?)") === 3);
+check("multi-partner params cover owner/investor/confinamento", $p5 === [4,9,12,4,9,12,4,9,12]);
+
+// The scope must never widen into "see everything" when the list is empty.
+[$w5b, $p5b] = computeWhere('user', [], null);
+check("user with no partner -> 1=0", $w5b === "1=0" && $p5b === []);
+line();
+
+line("=== TEST 6: editing is limited to records the user created ===");
+$_SESSION = ['user_id' => 42, 'role' => 'user', 'partner_ids' => [4, 9], 'partner_id' => 4];
+check("can edit a record it created", can_edit_record(42) === true);
+check("cannot edit a record created by someone else", can_edit_record(7) === false);
+check("cannot edit a record with no creator", can_edit_record(null) === false);
+check("linked partner is recognized", user_has_partner(9) === true);
+check("unlinked partner is rejected", user_has_partner(3) === false);
+
+$_SESSION = ['user_id' => 42, 'role' => 'admin', 'partner_ids' => [], 'partner_id' => null];
+check("admin can edit records created by others", can_edit_record(7) === true);
+line();
+
+line("=== TEST 7: DB sanity - all users have a non-null role ===");
 $badRoles = $pdo->query("SELECT COUNT(*) c FROM users WHERE role IS NULL OR role = ''")->fetch();
 check("no users with null/empty role in DB", intval($badRoles['c']) === 0);
 if (intval($badRoles['c']) > 0) {

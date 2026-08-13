@@ -17,10 +17,50 @@ function login($username, $password)
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['username'] = $user['username'];
         $_SESSION['role'] = $user['role'];
-        $_SESSION['partner_id'] = $user['partner_id'];
+        $_SESSION['partner_ids'] = fetch_user_partner_ids($user['id'], $user['partner_id']);
+        // Legacy single-partner slot: kept in sync with the first linked partner
+        // so any older code path still resolves to a valid partner.
+        $_SESSION['partner_id'] = $_SESSION['partner_ids'][0] ?? null;
         return true;
     }
     return false;
+}
+
+// Every partner a user is linked to. Reads the user_partners many-to-many
+// table and falls back to the legacy users.partner_id column when the table
+// does not exist yet or holds no row for this user.
+function fetch_user_partner_ids($userId, $legacyPartnerId = null)
+{
+    global $pdo;
+
+    $ids = [];
+    try {
+        $stmt = $pdo->prepare("
+            SELECT up.partner_id
+            FROM user_partners up
+            JOIN partners p ON p.id = up.partner_id
+            WHERE up.user_id = ?
+            ORDER BY p.name ASC
+        ");
+        $stmt->execute([$userId]);
+        $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    } catch (PDOException $e) {
+        // user_partners not migrated yet: fall back to the legacy column below.
+        $ids = [];
+    }
+
+    if (empty($ids)) {
+        if ($legacyPartnerId === null) {
+            $stmt = $pdo->prepare("SELECT partner_id FROM users WHERE id = ?");
+            $stmt->execute([$userId]);
+            $legacyPartnerId = $stmt->fetchColumn();
+        }
+        if (!empty($legacyPartnerId)) {
+            $ids = [intval($legacyPartnerId)];
+        }
+    }
+
+    return array_values(array_unique($ids));
 }
 
 function logout()
@@ -46,7 +86,11 @@ function ensure_session_hydrated()
 {
     global $pdo;
 
-    if (isset($_SESSION['user_id']) && !isset($_SESSION['role'])) {
+    if (!isset($_SESSION['user_id'])) {
+        return;
+    }
+
+    if (!isset($_SESSION['role'])) {
         $stmt = $pdo->prepare("SELECT role, partner_id FROM users WHERE id = ?");
         $stmt->execute([$_SESSION['user_id']]);
         $user = $stmt->fetch();
@@ -55,6 +99,17 @@ function ensure_session_hydrated()
             $_SESSION['role'] = $user['role'];
             $_SESSION['partner_id'] = $user['partner_id'];
         }
+    }
+
+    // Sessions created before multi-partner support (or by the branch above)
+    // only carry the single partner_id. Load the full list so the access scope
+    // covers every partner linked to this user.
+    if (!isset($_SESSION['partner_ids'])) {
+        $_SESSION['partner_ids'] = fetch_user_partner_ids(
+            $_SESSION['user_id'],
+            $_SESSION['partner_id'] ?? null
+        );
+        $_SESSION['partner_id'] = $_SESSION['partner_ids'][0] ?? null;
     }
 }
 
@@ -66,6 +121,64 @@ function get_current_user_role()
 function get_current_user_partner_id()
 {
     return $_SESSION['partner_id'] ?? null;
+}
+
+// All partners the logged-in user has access to (empty array when none).
+function get_current_user_partner_ids()
+{
+    if (is_logged_in()) {
+        ensure_session_hydrated();
+    }
+    $ids = $_SESSION['partner_ids'] ?? null;
+    if (is_array($ids)) {
+        return $ids;
+    }
+    // Defensive fallback for sessions that only carry the legacy slot.
+    return !empty($_SESSION['partner_id']) ? [intval($_SESSION['partner_id'])] : [];
+}
+
+// True when the given partner is one of the user's linked partners.
+function user_has_partner($partnerId)
+{
+    if (empty($partnerId)) {
+        return false;
+    }
+    return in_array(intval($partnerId), get_current_user_partner_ids(), true);
+}
+
+// Builds the WHERE fragment restricting partnerships to a set of partners.
+// Returns [clause, params]; an empty partner set yields "1=0" so a user with no
+// linked partner never falls back to seeing everything.
+function partner_scope_clause(array $partnerIds, $alias = 'p')
+{
+    if (empty($partnerIds)) {
+        return ['1=0', []];
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($partnerIds), '?'));
+    $clause = "($alias.owner_id IN ($placeholders)"
+        . " OR $alias.investor_id IN ($placeholders)"
+        . " OR $alias.confinamento_id IN ($placeholders))";
+    $params = array_merge($partnerIds, $partnerIds, $partnerIds);
+
+    return [$clause, $params];
+}
+
+// Write access rule: admins can change anything, everyone else only the records
+// they created themselves. Being linked to a partner grants visibility over
+// that partner's data, never the right to edit records created by others.
+function can_edit_record($createdBy)
+{
+    if (!is_logged_in()) {
+        return false;
+    }
+    ensure_session_hydrated();
+
+    if (($_SESSION['role'] ?? null) === 'admin') {
+        return true;
+    }
+
+    return !empty($createdBy) && $createdBy == $_SESSION['user_id'];
 }
 
 function has_role($role)

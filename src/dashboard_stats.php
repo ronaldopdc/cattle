@@ -9,7 +9,7 @@ require_once __DIR__ . '/financial_calculations.php';
 // Fetch Partnerships with Owner Name
 // Determine User Access
 $userRole = get_current_user_role();
-$userPartnerId = get_current_user_partner_id();
+$userPartnerIds = get_current_user_partner_ids();
 
 $whereClause = "1=1";
 $params = [];
@@ -32,22 +32,20 @@ if (!$endDateParam) {
 }
 
 if ($userRole === 'admin') {
-    $selectedPartnerId = isset($_GET['partner_id']) ? $_GET['partner_id'] : ($userPartnerId ?: 'all');
+    // The filter dropdown holds a single partner, so an admin linked to several
+    // partners (or to none) defaults to "all"; a single link keeps defaulting
+    // to that partner.
+    $defaultPartnerId = count($userPartnerIds) === 1 ? $userPartnerIds[0] : 'all';
+    $selectedPartnerId = isset($_GET['partner_id']) ? $_GET['partner_id'] : $defaultPartnerId;
     if ($selectedPartnerId !== 'all') {
-        $whereClause = "(p.owner_id = ? OR p.investor_id = ? OR p.confinamento_id = ?)";
-        $params = [$selectedPartnerId, $selectedPartnerId, $selectedPartnerId];
+        [$whereClause, $params] = partner_scope_clause([intval($selectedPartnerId)]);
     }
 } else {
     // Any non-admin role (including an unexpected/empty one) is restricted to
-    // its own partner. Never fall back to the default "1=1" clause, which would
-    // expose every partnership when the role could not be resolved.
-    if (!$userPartnerId) {
-        // No linked partner: don't show any partnership.
-        $whereClause = "1=0";
-    } else {
-        $whereClause = "(p.owner_id = ? OR p.investor_id = ? OR p.confinamento_id = ?)";
-        $params = [$userPartnerId, $userPartnerId, $userPartnerId];
-    }
+    // its linked partners. Never fall back to the default "1=1" clause, which
+    // would expose every partnership when the role could not be resolved.
+    // With no linked partner the clause becomes "1=0" (sees nothing).
+    [$whereClause, $params] = partner_scope_clause($userPartnerIds);
 }
 
 // Fetch Partnerships with Owner and Investor Names

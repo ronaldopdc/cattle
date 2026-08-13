@@ -93,6 +93,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmtUser = $pdo->prepare($sqlUser);
         $stmtUser->execute([$username, $password_hash, $partner_id, $email]);
 
+        // Register the link in the many-to-many table as well, so more partners
+        // can later be added to this user.
+        $stmtUserPartner = $pdo->prepare("INSERT IGNORE INTO user_partners (user_id, partner_id) VALUES (?, ?)");
+        $stmtUserPartner->execute([$pdo->lastInsertId(), $partner_id]);
+
         $pdo->commit();
         $message = "Cadastro realizado com sucesso! Você já pode fazer login.";
 

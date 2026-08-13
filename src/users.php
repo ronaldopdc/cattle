@@ -6,6 +6,24 @@ require_once 'config.php';
 
 $message = '';
 
+// Replaces every partner link of a user with the given list. The legacy
+// users.partner_id column is kept in sync with the first partner so any code
+// path still reading it resolves to a valid partner.
+function syncUserPartners($pdo, $userId, array $partnerIds)
+{
+    $pdo->prepare("DELETE FROM user_partners WHERE user_id = ?")->execute([$userId]);
+
+    if (!empty($partnerIds)) {
+        $stmtLink = $pdo->prepare("INSERT IGNORE INTO user_partners (user_id, partner_id) VALUES (?, ?)");
+        foreach ($partnerIds as $partnerId) {
+            $stmtLink->execute([$userId, $partnerId]);
+        }
+    }
+
+    $stmtLegacy = $pdo->prepare("UPDATE users SET partner_id = ? WHERE id = ?");
+    $stmtLegacy->execute([$partnerIds[0] ?? null, $userId]);
+}
+
 // Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -21,7 +39,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Validate input
             $username = trim($_POST['username']);
             $role = $_POST['role'];
-            $partner_id = !empty($_POST['partner_id']) ? $_POST['partner_id'] : null;
+
+            // A user can be linked to several partners at once and gets access
+            // to everything belonging to all of them.
+            $partner_ids = isset($_POST['partner_ids']) && is_array($_POST['partner_ids'])
+                ? array_values(array_unique(array_map('intval', array_filter($_POST['partner_ids'], 'strlen'))))
+                : [];
+            $partner_id = $partner_ids[0] ?? null;
 
             if (empty($username)) {
                 throw new Exception("O nome de usuário é obrigatório.");
@@ -29,6 +53,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!empty($_POST['id'])) {
                 // Update User
+                $pdo->beginTransaction();
+
                 $sql = "UPDATE users SET username = ?, email = ?, role = ?, partner_id = ? WHERE id = ?";
                 $params = [$username, $_POST['email'], $role, $partner_id, $_POST['id']];
 
@@ -40,6 +66,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute($params);
+                syncUserPartners($pdo, $_POST['id'], $partner_ids);
+
+                $pdo->commit();
                 $message = "Usuário atualizado com sucesso!";
             } else {
                 // Insert User
@@ -54,20 +83,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new Exception("Nome de usuário já existe.");
                 }
 
+                $pdo->beginTransaction();
+
                 $sql = "INSERT INTO users (username, email, password_hash, role, partner_id) VALUES (?, ?, ?, ?, ?)";
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute([$username, $_POST['email'], password_hash($_POST['password'], PASSWORD_DEFAULT), $role, $partner_id]);
+                syncUserPartners($pdo, $pdo->lastInsertId(), $partner_ids);
+
+                $pdo->commit();
                 $message = "Usuário criado com sucesso!";
             }
         }
     } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         $message = "Erro: " . $e->getMessage();
     }
 }
 
 // Fetch Users
-$stmt = $pdo->query("SELECT u.*, p.name as partner_name FROM users u LEFT JOIN partners p ON u.partner_id = p.id ORDER BY u.username ASC");
+// Never expose password_hash to the page: the row is JSON-encoded into the edit button.
+$stmt = $pdo->query("SELECT id, username, email, role, partner_id FROM users ORDER BY username ASC");
 $users = $stmt->fetchAll();
+
+// Fetch every partner linked to each user (many-to-many)
+$userPartnerMap = [];
+$linkRows = $pdo->query("
+    SELECT up.user_id, up.partner_id, p.name
+    FROM user_partners up
+    JOIN partners p ON p.id = up.partner_id
+    ORDER BY p.name ASC
+")->fetchAll();
+foreach ($linkRows as $link) {
+    $userPartnerMap[$link['user_id']][] = [
+        'id' => intval($link['partner_id']),
+        'name' => $link['name'],
+    ];
+}
+
+foreach ($users as &$u) {
+    $links = $userPartnerMap[$u['id']] ?? [];
+    $u['partner_ids'] = array_column($links, 'id');
+    $u['partner_names'] = array_column($links, 'name');
+}
+unset($u);
 
 // Fetch Partners for Dropdown
 $partners = $pdo->query("SELECT id, name, type FROM partners ORDER BY name ASC")->fetchAll();
@@ -129,18 +189,27 @@ $partners = $pdo->query("SELECT id, name, type FROM partners ORDER BY name ASC")
                         </div>
 
                         <div class="form-group">
-                            <label>Vincular a Parceiro (Opcional)</label>
-                            <select name="partner_id" id="partner_id">
-                                <option value="">Nenhum</option>
+                            <label>Vincular a Parceiros (Opcional)</label>
+                            <input type="text" id="partnerSearch" placeholder="Buscar parceiro..."
+                                oninput="filterPartners(this.value)" style="margin-bottom: 0.5rem;">
+                            <div id="partnerList"
+                                style="max-height: 220px; overflow-y: auto; border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 8px; padding: 0.5rem;">
                                 <?php foreach ($partners as $p): ?>
-                                    <option value="<?= $p['id'] ?>">
-                                        <?= htmlspecialchars($p['name']) ?>
-                                        (<?= $p['type'] === 'owner' ? 'Proprietário' : 'Investidor' ?>)
-                                    </option>
+                                    <label class="partner-option"
+                                        data-name="<?= htmlspecialchars(mb_strtolower($p['name'])) ?>"
+                                        style="display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.25rem; cursor: pointer; font-weight: 400;">
+                                        <input type="checkbox" name="partner_ids[]" value="<?= $p['id'] ?>"
+                                            class="partner-checkbox" style="width: auto; margin: 0;">
+                                        <span>
+                                            <?= htmlspecialchars($p['name']) ?>
+                                            (<?= $p['type'] === 'owner' ? 'Proprietário' : 'Investidor' ?>)
+                                        </span>
+                                    </label>
                                 <?php endforeach; ?>
-                            </select>
+                            </div>
                             <small style="color: #94a3b8; display: block; margin-top: 0.25rem;">
-                                Vincule se este usuário for um parceiro (proprietário ou investidor).
+                                Selecione um ou mais parceiros. O usuário terá acesso a tudo de todos os parceiros
+                                vinculados, mas só poderá editar o que ele mesmo cadastrou.
                             </small>
                         </div>
 
@@ -167,7 +236,7 @@ $partners = $pdo->query("SELECT id, name, type FROM partners ORDER BY name ASC")
                                 <th>Usuário</th>
                                 <th>E-mail</th>
                                 <th>Função</th>
-                                <th>Parceiro Vinculado</th>
+                                <th>Parceiros Vinculados</th>
                                 <th>Ações</th>
                             </tr>
                         </thead>
@@ -196,8 +265,17 @@ $partners = $pdo->query("SELECT id, name, type FROM partners ORDER BY name ASC")
                                             <?= ucfirst($u['role']) ?>
                                         </span>
                                     </td>
-                                    <td data-label="Parceiro Vinculado">
-                                        <?= $u['partner_name'] ? htmlspecialchars($u['partner_name']) : '-' ?>
+                                    <td data-label="Parceiros Vinculados">
+                                        <?php if (empty($u['partner_names'])): ?>
+                                            -
+                                        <?php else: ?>
+                                            <?php foreach ($u['partner_names'] as $partnerName): ?>
+                                                <span class="badge"
+                                                    style="background: rgba(52, 211, 153, 0.15); color: #34d399; margin: 0 0.25rem 0.25rem 0; display: inline-block;">
+                                                    <?= htmlspecialchars($partnerName) ?>
+                                                </span>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
                                     </td>
                                     <td data-label="Ações">
                                         <button class="btn btn-icon btn-edit" onclick='editUser(<?= json_encode($u) ?>)'
@@ -227,6 +305,20 @@ $partners = $pdo->query("SELECT id, name, type FROM partners ORDER BY name ASC")
     </div>
 
     <script>
+        function filterPartners(term) {
+            const needle = (term || '').toLowerCase();
+            document.querySelectorAll('#partnerList .partner-option').forEach(function (opt) {
+                opt.style.display = opt.dataset.name.includes(needle) ? 'flex' : 'none';
+            });
+        }
+
+        function setSelectedPartners(ids) {
+            const selected = (ids || []).map(String);
+            document.querySelectorAll('.partner-checkbox').forEach(function (cb) {
+                cb.checked = selected.includes(cb.value);
+            });
+        }
+
         function showForm() {
             document.getElementById('formContainer').style.display = 'block';
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -244,7 +336,9 @@ $partners = $pdo->query("SELECT id, name, type FROM partners ORDER BY name ASC")
             document.getElementById('username').value = user.username;
             document.getElementById('email').value = user.email || '';
             document.getElementById('role').value = user.role;
-            document.getElementById('partner_id').value = user.partner_id || '';
+            setSelectedPartners(user.partner_ids);
+            document.getElementById('partnerSearch').value = '';
+            filterPartners('');
             document.getElementById('password').value = ''; // Clean password field
             document.getElementById('password').placeholder = 'Digite para alterar a senha';
 
@@ -257,6 +351,8 @@ $partners = $pdo->query("SELECT id, name, type FROM partners ORDER BY name ASC")
             document.getElementById('formTitle').innerText = 'Novo Usuário';
             document.getElementById('userForm').reset();
             document.getElementById('user_id').value = '';
+            setSelectedPartners([]);
+            filterPartners('');
             document.getElementById('password').placeholder = 'Deixe em branco para manter a atual';
             document.getElementById('submitBtn').innerText = 'Cadastrar';
             document.getElementById('cancelBtn').style.display = 'none';

@@ -89,12 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmtOwner = $pdo->prepare("SELECT created_by, investor_id FROM partnerships WHERE id = ?");
             $stmtOwner->execute([$_POST['id']]);
             $pData = $stmtOwner->fetch();
-            $owner = $pData['created_by'];
-            $investorId = $pData['investor_id'];
-            $isInvestor = ($_SESSION['partner_id'] && $_SESSION['partner_id'] == $investorId);
-
-            if ($owner != $_SESSION['user_id'] && $_SESSION['role'] !== 'admin' && !$isInvestor) {
-                throw new Exception("Você não tem permissão para excluir esta parceria.");
+            if (!can_edit_record($pData['created_by'])) {
+                throw new Exception("Você não tem permissão para excluir esta parceria. Somente o usuário que cadastrou a parceria pode excluí-la.");
             }
 
             // Delete Partnership
@@ -115,12 +111,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtOwner = $pdo->prepare("SELECT created_by, investor_id FROM partnerships WHERE id = ?");
                 $stmtOwner->execute([$_POST['id']]);
                 $pData = $stmtOwner->fetch();
-                $owner = $pData['created_by'];
-                $investorId = $pData['investor_id'];
-                $isInvestor = ($_SESSION['partner_id'] && $_SESSION['partner_id'] == $investorId);
 
-                if ($owner != $_SESSION['user_id'] && $_SESSION['role'] !== 'admin' && !$isInvestor) {
-                    throw new Exception("Você não tem permissão para editar esta parceria.");
+                if (!can_edit_record($pData['created_by'])) {
+                    throw new Exception("Você não tem permissão para editar esta parceria. Somente o usuário que cadastrou a parceria pode editá-la.");
                 }
 
                 // Update Partnership
@@ -199,18 +192,14 @@ $lots = $pdo->query("SELECT * FROM lots")->fetchAll();
 
 // Determine User Access
 $userRole = get_current_user_role();
-$userPartnerId = get_current_user_partner_id();
+$userPartnerIds = get_current_user_partner_ids();
 
 $whereClause = "1=1";
 $params = [];
 
 if ($userRole === 'user') {
-    if (!$userPartnerId) {
-        $whereClause = "1=0";
-    } else {
-        $whereClause = "(p.owner_id = ? OR p.investor_id = ? OR p.confinamento_id = ?)";
-        $params = [$userPartnerId, $userPartnerId, $userPartnerId];
-    }
+    // A user sees everything belonging to every partner linked to them.
+    [$whereClause, $params] = partner_scope_clause($userPartnerIds);
 }
 
 // Fetch Partnerships for List
@@ -390,8 +379,7 @@ foreach ($partnerships as &$p) {
     // User wants "Saldo Previsto" to be correct.
     // The previous logic for 'projected_value_calc' was sum of lot projections. This is the "Goal".
 
-    $isInvestor = (isset($_SESSION['partner_id']) && $_SESSION['partner_id'] && $_SESSION['partner_id'] == $p['investor_id']);
-    $hasEditPermission = ($p['created_by'] == $_SESSION['user_id'] || $_SESSION['role'] === 'admin' || $isInvestor);
+    $hasEditPermission = can_edit_record($p['created_by']);
 
     // Initialize memory array
     $memory = [
@@ -1291,9 +1279,9 @@ unset($p);
                                         <?= $p['available_animals'] ?>
                                     </td>
                                     <td data-label="Ações">
-                                        <?php 
-                                        $isInvestor = ($_SESSION['partner_id'] && $_SESSION['partner_id'] == $p['investor_id']);
-                                        if ($p['created_by'] == $_SESSION['user_id'] || $_SESSION['role'] === 'admin' || $isInvestor): ?>
+                                        <?php
+                                        $canEditRow = can_edit_record($p['created_by']);
+                                        if ($canEditRow): ?>
                                         <button class="btn btn-icon btn-edit"
                                             onclick='editPartnership(<?= json_encode($p) ?>, <?= json_encode($partnershipLots[$p['id']] ?? []) ?>)'
                                             title="Editar">
@@ -1310,7 +1298,7 @@ unset($p);
                                             style="background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.2); color: #60a5fa;">
                                             <i class="fas fa-calculator"></i>
                                         </button>
-                                        <?php if ($p['created_by'] == $_SESSION['user_id'] || $_SESSION['role'] === 'admin' || $isInvestor): ?>
+                                        <?php if ($canEditRow): ?>
                                         <button class="btn btn-icon" onclick="openLiquidationModal(<?= $p['id'] ?>)"
                                             title="Liquidar"
                                             style="background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.2); color: #fbbf24;">
