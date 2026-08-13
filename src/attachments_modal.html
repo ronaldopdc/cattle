@@ -9,8 +9,8 @@
         <h2 style="margin-top: 0; color: #a78bfa; font-weight: 600;">Anexos da Parceria #<span
                 id="modal-partnership-id"></span></h2>
 
-        <!-- Upload Form -->
-        <div style="background: rgba(255, 255, 255, 0.03); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+        <!-- Upload Form (hidden for read-only users: they can only download) -->
+        <div style="background: rgba(255, 255, 255, 0.03); padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;<?= is_confinement_only_user() ? ' display: none;' : '' ?>">
             <h3 style="margin-top: 0; color: #e2e8f0; font-size: 1.1rem;">Enviar Novo Anexo</h3>
             <form id="uploadForm" enctype="multipart/form-data">
                 <div class="form-group">
@@ -49,6 +49,10 @@
 </div>
 
 <script>
+    // Confinamento-only users get read-only attachments: download only, no
+    // upload and no delete.
+    const ATTACHMENTS_READ_ONLY = <?= is_confinement_only_user() ? 'true' : 'false' ?>;
+
     let currentPartnershipIdForModal = null;
 
     function openAttachmentsModal(partnershipId) {
@@ -171,9 +175,10 @@
                         <button onclick="downloadAttachment(${att.id}, '${att.filename}')" class="btn btn-icon" title="Baixar" style="background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.2); color: #22c55e;">
                             <i class="fas fa-download"></i>
                         </button>
+                        ${ATTACHMENTS_READ_ONLY ? '' : `
                         <button onclick="deleteAttachment(${att.id})" class="btn btn-icon" title="Excluir" style="background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.2); color: #ef4444;">
                             <i class="fas fa-trash"></i>
-                        </button>
+                        </button>`}
                     </div>
                 </div>
             `;

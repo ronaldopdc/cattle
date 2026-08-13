@@ -82,6 +82,12 @@ $message = '';
 // Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
+        // Confinamento-only users have a read-only view: the form is not
+        // rendered for them, so a POST here can only be a forged request.
+        if (is_confinement_only_user()) {
+            throw new Exception("Acesso negado. Sua conta tem acesso somente de consulta às parcerias.");
+        }
+
         $pdo->beginTransaction();
 
         if (isset($_POST['action']) && $_POST['action'] === 'delete') {
@@ -179,7 +185,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $pdo->commit();
     } catch (Exception $e) {
-        $pdo->rollBack();
+        // The permission check above runs before the transaction starts, so
+        // only roll back when one is actually open.
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         $message = "Erro ao salvar: " . $e->getMessage();
     }
 }
@@ -193,12 +203,17 @@ $lots = $pdo->query("SELECT * FROM lots")->fetchAll();
 // Determine User Access
 $userRole = get_current_user_role();
 $userPartnerIds = get_current_user_partner_ids();
+// User linked exclusively to confinamento partners: read-only list of the
+// contracts their confinements take part in.
+$isConfinementOnly = is_confinement_only_user();
 
 $whereClause = "1=1";
 $params = [];
 
-if ($userRole === 'user') {
-    // A user sees everything belonging to every partner linked to them.
+if ($userRole === 'user' || $isConfinementOnly) {
+    // A user sees everything belonging to every partner linked to them. For a
+    // confinamento-only user that is exactly the contracts their confinements
+    // take part in, whatever their role is (admins are never in this branch).
     [$whereClause, $params] = partner_scope_clause($userPartnerIds);
 }
 
@@ -1085,13 +1100,18 @@ unset($p);
                                 <i class="fas fa-rotate-left"></i> Hoje
                             </button>
                         <?php endif; ?>
-                        <button class="btn btn-secondary" onclick="openSimulationModal()" style="background-color: #38bdf8; border-color: #38bdf8; color: white;">
-                            <i class="fas fa-calculator"></i> Simulação
-                        </button>
+                        <?php // Confinamento-only users get the list itself, not the management actions. ?>
+                        <?php if (!$isConfinementOnly): ?>
+                            <button class="btn btn-secondary" onclick="openSimulationModal()" style="background-color: #38bdf8; border-color: #38bdf8; color: white;">
+                                <i class="fas fa-calculator"></i> Simulação
+                            </button>
+                        <?php endif; ?>
                         <button class="btn btn-secondary" onclick="generatePartnershipReport()">
                             <i class="fas fa-file-pdf"></i> Relatório
                         </button>
-                        <button class="btn btn-primary" onclick="showForm()">+ Nova Parceria</button>
+                        <?php if (!$isConfinementOnly): ?>
+                            <button class="btn btn-primary" onclick="showForm()">+ Nova Parceria</button>
+                        <?php endif; ?>
                     </div>
                 </div>
 

@@ -117,7 +117,63 @@ $_SESSION = ['user_id' => 42, 'role' => 'admin', 'partner_ids' => [], 'partner_i
 check("admin can edit records created by others", can_edit_record(7) === true);
 line();
 
-line("=== TEST 7: DB sanity - all users have a non-null role ===");
+line("=== TEST 7: user linked ONLY to confinamento partners ===");
+// Such a user gets a single screen (the partnerships list), scoped to the
+// contracts their confinements take part in, with read-only attachments.
+$confPartners = $pdo->query("
+    SELECT p.id FROM partners p
+    JOIN partner_type_assignments pta ON pta.partner_id = p.id
+    GROUP BY p.id
+    HAVING SUM(pta.type <> 'confinamento') = 0 AND SUM(pta.type = 'confinamento') > 0
+")->fetchAll(PDO::FETCH_COLUMN);
+
+if (empty($confPartners)) {
+    line("  (no confinamento-only partner in DB to test)");
+} else {
+    $confIds = array_map('intval', $confPartners);
+    line("  parceiros confinamento: " . implode(', ', $confIds));
+
+    $_SESSION = ['user_id' => 999, 'role' => 'user', 'partner_ids' => $confIds, 'partner_id' => $confIds[0]];
+    check("detected as confinamento-only", is_confinement_only_user() === true);
+    check("linked types are exactly ['confinamento']", get_current_user_partner_types() === ['confinamento']);
+
+    // The visible scope must equal the contracts those confinements are part of.
+    [$wc, $pc] = partner_scope_clause($confIds);
+    $stmtScope = $pdo->prepare("SELECT id FROM partnerships p WHERE $wc ORDER BY id");
+    $stmtScope->execute($pc);
+    $visible = array_map('intval', $stmtScope->fetchAll(PDO::FETCH_COLUMN));
+
+    $inList = implode(',', $confIds);
+    $expected = array_map('intval', $pdo->query(
+        "SELECT id FROM partnerships WHERE confinamento_id IN ($inList) ORDER BY id"
+    )->fetchAll(PDO::FETCH_COLUMN));
+    check("scope == contracts where the confinements take part", $visible === $expected);
+    check("nothing outside that scope leaks in", array_diff($visible, $expected) === []);
+
+    check("only the partnerships list is reachable",
+        confinement_only_allowed_pages() === ['partnerships.php', 'generate_receipt.php', 'generate_total_receipt.php', 'logout.php', 'login.php']);
+    foreach (['index.php', 'partners.php', 'lots.php', 'contracts.php', 'users.php'] as $blocked) {
+        check("$blocked is blocked", !in_array($blocked, confinement_only_allowed_pages(), true));
+    }
+
+    // An admin is never pushed into the reduced interface.
+    $_SESSION = ['user_id' => 999, 'role' => 'admin', 'partner_ids' => $confIds, 'partner_id' => $confIds[0]];
+    check("admin linked to a confinamento keeps full access", is_confinement_only_user() === false);
+}
+
+// A user linked to a non-confinamento partner keeps the full interface.
+$otherPartner = $pdo->query("
+    SELECT p.id FROM partners p
+    JOIN partner_type_assignments pta ON pta.partner_id = p.id
+    WHERE pta.type <> 'confinamento' LIMIT 1
+")->fetchColumn();
+if ($otherPartner) {
+    $_SESSION = ['user_id' => 998, 'role' => 'user', 'partner_ids' => [intval($otherPartner)], 'partner_id' => intval($otherPartner)];
+    check("owner/investor user is NOT confinamento-only", is_confinement_only_user() === false);
+}
+line();
+
+line("=== TEST 8: DB sanity - all users have a non-null role ===");
 $badRoles = $pdo->query("SELECT COUNT(*) c FROM users WHERE role IS NULL OR role = ''")->fetch();
 check("no users with null/empty role in DB", intval($badRoles['c']) === 0);
 if (intval($badRoles['c']) > 0) {

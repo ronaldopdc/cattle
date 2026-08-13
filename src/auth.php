@@ -164,6 +164,110 @@ function partner_scope_clause(array $partnerIds, $alias = 'p')
     return [$clause, $params];
 }
 
+// Distinct types (owner / investor / confinamento) of every partner linked to
+// the user. Cached per set of partners, so repeated calls within a request cost
+// one query without ever returning another user's types.
+function get_current_user_partner_types()
+{
+    global $pdo;
+    static $cache = [];
+
+    $ids = get_current_user_partner_ids();
+    if (empty($ids)) {
+        return [];
+    }
+
+    $key = implode(',', $ids);
+    if (isset($cache[$key])) {
+        return $cache[$key];
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+    $stmt = $pdo->prepare("
+        SELECT DISTINCT type
+        FROM partner_type_assignments
+        WHERE partner_id IN ($placeholders)
+        ORDER BY type ASC
+    ");
+    $stmt->execute($ids);
+    $cache[$key] = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    return $cache[$key];
+}
+
+// True when every partner linked to the user is a confinamento (and there is at
+// least one). These users get a reduced interface: only the partnerships list,
+// restricted to the contracts their confinements take part in, where the
+// attachments can be downloaded but never deleted.
+function is_confinement_only_user()
+{
+    if (!is_logged_in()) {
+        return false;
+    }
+    ensure_session_hydrated();
+
+    if (($_SESSION['role'] ?? null) === 'admin') {
+        return false;
+    }
+    if (empty(get_current_user_partner_ids())) {
+        return false;
+    }
+
+    return get_current_user_partner_types() === ['confinamento'];
+}
+
+// True when the given partnership falls inside the user's partner scope.
+// Admins always pass.
+function user_can_access_partnership($partnershipId)
+{
+    global $pdo;
+
+    if (!is_logged_in() || empty($partnershipId)) {
+        return false;
+    }
+    ensure_session_hydrated();
+
+    if (($_SESSION['role'] ?? null) === 'admin') {
+        return true;
+    }
+
+    [$clause, $params] = partner_scope_clause(get_current_user_partner_ids());
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM partnerships p WHERE p.id = ? AND $clause");
+    $stmt->execute(array_merge([$partnershipId], $params));
+
+    return intval($stmt->fetchColumn()) > 0;
+}
+
+// The only pages a confinamento-only user may open. Everything else bounces
+// back to the partnerships list.
+function confinement_only_allowed_pages()
+{
+    return [
+        'partnerships.php',
+        'generate_receipt.php',
+        'generate_total_receipt.php',
+        'logout.php',
+        'login.php',
+    ];
+}
+
+// Applied from require_login(), so a page added later is restricted by default
+// instead of silently becoming reachable.
+function enforce_confinement_only_scope()
+{
+    if (!is_confinement_only_user()) {
+        return;
+    }
+
+    $page = basename($_SERVER['PHP_SELF'] ?? '');
+    if (in_array($page, confinement_only_allowed_pages(), true)) {
+        return;
+    }
+
+    header('Location: partnerships.php');
+    exit;
+}
+
 // Write access rule: admins can change anything, everyone else only the records
 // they created themselves. Being linked to a partner grants visibility over
 // that partner's data, never the right to edit records created by others.
@@ -199,6 +303,7 @@ function require_login()
         exit;
     }
     ensure_session_hydrated();
+    enforce_confinement_only_scope();
 }
 
 function require_role($role)

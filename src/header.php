@@ -9,21 +9,26 @@
         </button>
 
         <nav class="main-nav" id="mainNav">
-            <a href="index.php" <?= basename($_SERVER['PHP_SELF']) == 'index.php' ? 'class="active"' : '' ?>>
-                <i class="fas fa-chart-line"></i> Dashboard
-            </a>
-            <a href="partners.php" <?= basename($_SERVER['PHP_SELF']) == 'partners.php' ? 'class="active"' : '' ?>>
-                <i class="fas fa-users"></i> Parceiros
-            </a>
-            <a href="lots.php" <?= basename($_SERVER['PHP_SELF']) == 'lots.php' ? 'class="active"' : '' ?>>
-                <i class="fas fa-box"></i> Lotes
-            </a>
+            <?php // Confinamento-only users get a single screen: the partnerships list. ?>
+            <?php if (!is_confinement_only_user()): ?>
+                <a href="index.php" <?= basename($_SERVER['PHP_SELF']) == 'index.php' ? 'class="active"' : '' ?>>
+                    <i class="fas fa-chart-line"></i> Dashboard
+                </a>
+                <a href="partners.php" <?= basename($_SERVER['PHP_SELF']) == 'partners.php' ? 'class="active"' : '' ?>>
+                    <i class="fas fa-users"></i> Parceiros
+                </a>
+                <a href="lots.php" <?= basename($_SERVER['PHP_SELF']) == 'lots.php' ? 'class="active"' : '' ?>>
+                    <i class="fas fa-box"></i> Lotes
+                </a>
+            <?php endif; ?>
             <a href="partnerships.php" <?= basename($_SERVER['PHP_SELF']) == 'partnerships.php' ? 'class="active"' : '' ?>>
                 <i class="fas fa-handshake"></i> Parcerias
             </a>
-            <a href="contracts.php" <?= basename($_SERVER['PHP_SELF']) == 'contracts.php' ? 'class="active"' : '' ?>>
-                <i class="fas fa-file-contract"></i> Contratos
-            </a>
+            <?php if (!is_confinement_only_user()): ?>
+                <a href="contracts.php" <?= basename($_SERVER['PHP_SELF']) == 'contracts.php' ? 'class="active"' : '' ?>>
+                    <i class="fas fa-file-contract"></i> Contratos
+                </a>
+            <?php endif; ?>
             <?php if (has_role('admin')): ?>
                 <a href="users.php" <?= basename($_SERVER['PHP_SELF']) == 'users.php' ? 'class="active"' : '' ?>>
                     <i class="fas fa-user-shield"></i> Usuários

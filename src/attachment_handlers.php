@@ -56,6 +56,12 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload_attachments_batch') {
     header('Content-Type: application/json');
 
     try {
+        // Confinamento-only users have read-only attachments: download only.
+        if (is_confinement_only_user()) {
+            echo json_encode(['success' => false, 'message' => 'Acesso negado. Os anexos podem apenas ser baixados.']);
+            exit;
+        }
+
         if (!isset($_FILES['files']) || !isset($_POST['partnership_id'])) {
             echo json_encode(['success' => false, 'message' => 'Arquivos ou ID da parceria não fornecidos']);
             exit;
@@ -175,6 +181,12 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload_attachment') {
     header('Content-Type: application/json');
 
     try {
+        // Confinamento-only users have read-only attachments: download only.
+        if (is_confinement_only_user()) {
+            echo json_encode(['success' => false, 'message' => 'Acesso negado. Os anexos podem apenas ser baixados.']);
+            exit;
+        }
+
         if (!isset($_FILES['file']) || !isset($_POST['partnership_id'])) {
             echo json_encode(['success' => false, 'message' => 'Arquivo ou ID da parceria não fornecido']);
             exit;
@@ -239,13 +251,20 @@ if (isset($_GET['action']) && $_GET['action'] === 'download_attachment') {
     }
 
     try {
-        $sql = "SELECT filename, file_data, file_type FROM partnership_attachments WHERE id = ?";
+        $sql = "SELECT partnership_id, filename, file_data, file_type FROM partnership_attachments WHERE id = ?";
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$attachment_id]);
         $attachment = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$attachment) {
             die('Anexo não encontrado');
+        }
+
+        // A confinamento-only user may only download attachments of the
+        // contracts their confinements take part in, so guessing an id does not
+        // reach another partner's documents.
+        if (is_confinement_only_user() && !user_can_access_partnership($attachment['partnership_id'])) {
+            die('Acesso negado. Este anexo não pertence a uma parceria do seu confinamento.');
         }
 
         // Set headers for download
@@ -265,6 +284,12 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete_attachment') {
     header('Content-Type: application/json');
 
     $attachment_id = $_GET['id'] ?? null;
+
+    // Confinamento-only users may download the attachments but never remove them.
+    if (is_confinement_only_user()) {
+        echo json_encode(['success' => false, 'message' => 'Acesso negado. Os anexos podem ser baixados, mas não excluídos.']);
+        exit;
+    }
 
     if (!$attachment_id) {
         echo json_encode(['success' => false, 'message' => 'ID do anexo não fornecido']);
