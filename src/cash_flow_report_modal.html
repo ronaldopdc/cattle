@@ -61,6 +61,15 @@
         }
     }
 
+    // Número no padrão brasileiro (1.234,56) para as colunas já rotuladas com "(R$)".
+    function formatNumberBR(value) {
+        const n = parseFloat(value);
+        return (isFinite(n) ? n : 0).toLocaleString('pt-BR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+    }
+
     function openCashFlowModal() {
         const modal = document.getElementById('cashFlowModal');
         
@@ -319,7 +328,7 @@
             html += `
                 <tr class="subtotal">
                     <td colspan="6">Saldo Anterior:</td>
-                    <td class="number">${globalRunningBalance.toFixed(2).replace('.', ',')}</td>
+                    <td class="number">${formatNumberBR(globalRunningBalance)}</td>
                     <td colspan="2"></td>
                     <td class="number">${globalCattleBalance}</td>
                 </tr>
@@ -343,9 +352,9 @@
                 html += `
                     <tr class="subtotal">
                         <td colspan="4">Subtotal ${lastMonth}:</td>
-                        <td class="number">${monthIn.toFixed(2).replace('.', ',')}</td>
-                        <td class="number">${monthOut.toFixed(2).replace('.', ',')}</td>
-                        <td class="number">${globalRunningBalance.toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${formatNumberBR(monthIn)}</td>
+                        <td class="number">${formatNumberBR(monthOut)}</td>
+                        <td class="number">${formatNumberBR(globalRunningBalance)}</td>
                         <td class="number">${monthCattleIn}</td>
                         <td class="number">${monthCattleOut}</td>
                         <td class="number">${globalCattleBalance}</td>
@@ -375,9 +384,9 @@
                     <td>${row.type}</td>
                     <td>#${row.partnership_id}</td>
                     <td>${row.owner_name}</td>
-                    <td class="number">${row.value_in > 0 ? row.value_in.toFixed(2).replace('.', ',') : '-'}</td>
-                    <td class="number">${row.value_out > 0 ? row.value_out.toFixed(2).replace('.', ',') : '-'}</td>
-                    <td class="number">${globalRunningBalance.toFixed(2).replace('.', ',')}</td>
+                    <td class="number">${row.value_in > 0 ? formatNumberBR(row.value_in) : '-'}</td>
+                    <td class="number">${row.value_out > 0 ? formatNumberBR(row.value_out) : '-'}</td>
+                    <td class="number">${formatNumberBR(globalRunningBalance)}</td>
                     <td class="number">${cattleIn > 0 ? cattleIn : '-'}</td>
                     <td class="number">${cattleOut > 0 ? cattleOut : '-'}</td>
                     <td class="number">${globalCattleBalance}</td>
@@ -390,9 +399,9 @@
                 html += `
                     <tr class="subtotal">
                         <td colspan="4">Subtotal ${lastMonth}:</td>
-                        <td class="number">${monthIn.toFixed(2).replace('.', ',')}</td>
-                        <td class="number">${monthOut.toFixed(2).replace('.', ',')}</td>
-                        <td class="number">${globalRunningBalance.toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${formatNumberBR(monthIn)}</td>
+                        <td class="number">${formatNumberBR(monthOut)}</td>
+                        <td class="number">${formatNumberBR(globalRunningBalance)}</td>
                         <td class="number">${monthCattleIn}</td>
                         <td class="number">${monthCattleOut}</td>
                         <td class="number">${globalCattleBalance}</td>
@@ -423,9 +432,9 @@
                 html += `
                     <tr>
                         <td colspan="4">${owner}</td>
-                        <td class="number">${totals.in.toFixed(2).replace('.', ',')}</td>
-                        <td class="number">${totals.out.toFixed(2).replace('.', ',')}</td>
-                        <td class="number">${(totals.in - totals.out).toFixed(2).replace('.', ',')}</td>
+                        <td class="number">${formatNumberBR(totals.in)}</td>
+                        <td class="number">${formatNumberBR(totals.out)}</td>
+                        <td class="number">${formatNumberBR((totals.in - totals.out))}</td>
                         <td class="number">${totals.c_in}</td>
                         <td class="number">${totals.c_out}</td>
                         <td class="number">${totals.c_in - totals.c_out}</td>
@@ -436,9 +445,9 @@
             html += `
                 <tr class="total">
                     <td colspan="4">TOTAL DO PERÍODO:</td>
-                    <td class="number">${globalIn.toFixed(2).replace('.', ',')}</td>
-                    <td class="number">${globalOut.toFixed(2).replace('.', ',')}</td>
-                    <td class="number">${globalRunningBalance.toFixed(2).replace('.', ',')}</td>
+                    <td class="number">${formatNumberBR(globalIn)}</td>
+                    <td class="number">${formatNumberBR(globalOut)}</td>
+                    <td class="number">${formatNumberBR(globalRunningBalance)}</td>
                     <td class="number">${globalCattleIn}</td>
                     <td class="number">${globalCattleOut}</td>
                     <td class="number">${globalCattleBalance}</td>

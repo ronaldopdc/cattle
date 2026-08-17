@@ -23,6 +23,8 @@ $rialmaLogoExists = file_exists(__DIR__ . '/assets/rialma.png');
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Máscara de moeda no padrão brasileiro (esta página não inclui header.php) -->
+    <script src="assets/currency-br.js"></script>
     <style>
         body {
             background: radial-gradient(circle at top right, #1e293b, #0f172a);
@@ -490,7 +492,7 @@ $rialmaLogoExists = file_exists(__DIR__ . '/assets/rialma.png');
                 <div class="field">
                     <label>Preço da arroba (@ = 30 kg)</label>
                     <div class="input-wrap">
-                        <input type="number" id="price" min="1" step="0.01" value="315.00" oninput="markPriceManual(); recalc()">
+                        <input type="number" id="price" min="1" step="0.01" value="315.00" data-currency oninput="markPriceManual(); recalc()">
                     </div>
                     <div class="price-status" id="priceStatus">Buscando cotação do boi gordo...</div>
                 </div>

@@ -335,7 +335,7 @@ $dailyCosts = $stmtCosts->fetchAll(PDO::FETCH_ASSOC);
                         <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
                             <div class="form-group">
                                 <label>Preço Indexado</label>
-                                <input type="number" step="0.01" name="indexed_price" id="indexed_price">
+                                <input type="number" step="0.01" name="indexed_price" id="indexed_price" data-currency>
                             </div>
                             <div class="form-group">
                                 <label>% Máx Adiantamento</label>
@@ -348,15 +348,15 @@ $dailyCosts = $stmtCosts->fetchAll(PDO::FETCH_ASSOC);
                             <h3 style="margin-top:0; color: #a78bfa; font-size: 1.1em; margin-bottom: 1rem;">Dados de Simulação de Engorda</h3>
                             
                             <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                                <div class="form-group"><label>Preço @ Compra (R$)</label><input type="number" step="0.01" name="purchase_arroba_price" id="purchase_arroba_price" oninput="calculateSimulation()"></div>
-                                <div class="form-group"><label>Preço @ Venda (R$)</label><input type="number" step="0.01" name="sale_arroba_price" id="sale_arroba_price" oninput="calculateSimulation()"></div>
+                                <div class="form-group"><label>Preço @ Compra (R$)</label><input type="number" step="0.01" name="purchase_arroba_price" id="purchase_arroba_price" data-currency oninput="calculateSimulation()"></div>
+                                <div class="form-group"><label>Preço @ Venda (R$)</label><input type="number" step="0.01" name="sale_arroba_price" id="sale_arroba_price" data-currency oninput="calculateSimulation()"></div>
                                 <div class="form-group"><label>Rendimento Esperado (%)</label><input type="number" step="0.01" name="expected_yield" id="expected_yield" value="50.5" oninput="calculateSimulation()"></div>
                             </div>
 
                             <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                                 <div class="form-group"><label>Comissão Compra (%)</label><input type="number" step="0.01" name="commission_percent" id="commission_percent" value="0.0" oninput="calculateSimulation()"></div>
                                 <div class="form-group"><label>Distância Frete (KM)</label><input type="number" step="0.01" name="freight_distance" id="freight_distance" oninput="calculateSimulation()"></div>
-                                <div class="form-group"><label>Preço Frete por KM (R$)</label><input type="number" step="0.01" name="freight_price_per_km" id="freight_price_per_km" oninput="calculateSimulation()"></div>
+                                <div class="form-group"><label>Preço Frete por KM (R$)</label><input type="number" step="0.01" name="freight_price_per_km" id="freight_price_per_km" data-currency oninput="calculateSimulation()"></div>
                             </div>
 
                             <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; align-items: end;">
@@ -370,9 +370,9 @@ $dailyCosts = $stmtCosts->fetchAll(PDO::FETCH_ASSOC);
                             
                             <h4 style="margin: 0 0 0.5rem; color: #e2e8f0; font-size: 0.95em;">Custos Extras (Ex: Vacinação, Eras...)</h4>
                             <div class="grid" style="grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
-                                <div class="form-group"><label>Vacinação (R$ / cabeça)</label><input type="number" step="0.01" name="vaccination_cost" id="vaccination_cost" oninput="calculateSimulation()"></div>
-                                <div class="form-group"><label>Eras (R$ / cabeça)</label><input type="number" step="0.01" name="eras_cost" id="eras_cost" oninput="calculateSimulation()"></div>
-                                <div class="form-group"><label>Outros (R$ / cabeça)</label><input type="number" step="0.01" name="other_extras_cost" id="other_extras_cost" oninput="calculateSimulation()"></div>
+                                <div class="form-group"><label>Vacinação (R$ / cabeça)</label><input type="number" step="0.01" name="vaccination_cost" id="vaccination_cost" data-currency oninput="calculateSimulation()"></div>
+                                <div class="form-group"><label>Eras (R$ / cabeça)</label><input type="number" step="0.01" name="eras_cost" id="eras_cost" data-currency oninput="calculateSimulation()"></div>
+                                <div class="form-group"><label>Outros (R$ / cabeça)</label><input type="number" step="0.01" name="other_extras_cost" id="other_extras_cost" data-currency oninput="calculateSimulation()"></div>
                             </div>
                             
                             <div class="analysis-panel" id="analysisPanel" style="margin-top: 1.5rem; border: 1px solid rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.05); padding: 1.2rem; border-radius: 8px;">

@@ -41,6 +41,9 @@
     </div>
 </header>
 
+<!-- Máscara de moeda no padrão brasileiro para os campos marcados com data-currency -->
+<script src="assets/currency-br.js"></script>
+
 <script>
     document.getElementById('menuToggle').addEventListener('click', function () {
         document.getElementById('mainNav').classList.toggle('active');

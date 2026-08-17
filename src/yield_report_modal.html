@@ -311,9 +311,9 @@
                 html += `
                     <tr class="subtotal">
                         <td colspan="5" style="text-align: right;">Subtotal ${lastMonth}:</td>
-                        <td style="text-align: right;">${monthYield.toFixed(2).replace('.', ',')}</td>
+                        <td style="text-align: right;">${formatNumberBR(monthYield)}</td>
                         <td style="text-align: right;">${monthPctMensal.toFixed(2).replace('.', ',')}%</td>
-                        <td style="text-align: right;">${monthBalance.toFixed(2).replace('.', ',')}</td>
+                        <td style="text-align: right;">${formatNumberBR(monthBalance)}</td>
                     </tr>
                 `;
                 if (monthUncalibratedYield > 0.001) {
@@ -338,10 +338,10 @@
                     <td>${row.end_date}</td>
                     <td>#${row.partnership_id}</td>
                     <td>${row.owner_name}</td>
-                    <td>${isLastOfContractInMonth ? row.base_principal.toFixed(2).replace('.', ',') : '-'}</td>
-                    <td>${row.yield.toFixed(2).replace('.', ',')}</td>
+                    <td>${isLastOfContractInMonth ? formatNumberBR(row.base_principal) : '-'}</td>
+                    <td>${formatNumberBR(row.yield)}</td>
                     <td>${rowPctMensal.toFixed(2).replace('.', ',')}%</td>
-                    <td>${isLastOfContractInMonth ? row.current_balance.toFixed(2).replace('.', ',') : '-'}</td>
+                    <td>${isLastOfContractInMonth ? formatNumberBR(row.current_balance) : '-'}</td>
                 </tr>
             `;
 
@@ -367,9 +367,9 @@
                 html += `
                     <tr class="subtotal">
                         <td colspan="5" style="text-align: right;">Subtotal ${currentMonth}:</td>
-                        <td style="text-align: right;">${monthYield.toFixed(2).replace('.', ',')}</td>
+                        <td style="text-align: right;">${formatNumberBR(monthYield)}</td>
                         <td style="text-align: right;">${monthPctMensal.toFixed(2).replace('.', ',')}%</td>
-                        <td style="text-align: right;">${monthBalance.toFixed(2).replace('.', ',')}</td>
+                        <td style="text-align: right;">${formatNumberBR(monthBalance)}</td>
                     </tr>
                 `;
             }
@@ -397,7 +397,7 @@
                         <td>#${pid}</td>
                         <td colspan="3">${owner}</td>
                         <td></td>
-                        <td style="text-align: right;">${total.toFixed(2).replace('.', ',')}</td>
+                        <td style="text-align: right;">${formatNumberBR(total)}</td>
                         <td></td>
                         <td></td>
                     </tr>
@@ -407,7 +407,7 @@
         html += `
                 <tr class="total">
                     <td colspan="5" style="text-align: right;">TOTAL GERAL:</td>
-                    <td style="text-align: right;">${grandYield.toFixed(2).replace('.', ',')}</td>
+                    <td style="text-align: right;">${formatNumberBR(grandYield)}</td>
                     <td style="text-align: right;">${grandPctMensal.toFixed(2).replace('.', ',')}%</td>
                     <td>-</td>
                 </tr>
@@ -429,5 +429,14 @@
         function formatCurrency(value) {
             return parseFloat(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         }
+    }
+
+    // Número no padrão brasileiro (1.234,56) para as colunas de valor já rotuladas com "R$".
+    function formatNumberBR(value) {
+        const n = parseFloat(value);
+        return (isFinite(n) ? n : 0).toLocaleString('pt-BR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
     }
 </script>

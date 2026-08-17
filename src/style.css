@@ -489,3 +489,29 @@ label {
     background-color: var(--primary-color) !important;
     color: #0f172a !important;
 }
+/* Campos de moeda no padrão brasileiro (assets/currency-br.js) */
+.currency-field {
+    position: relative;
+    display: block;
+    width: 100%;
+}
+
+.currency-field .currency-prefix {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 0.85rem;
+    pointer-events: none;
+}
+
+.currency-field .currency-input {
+    padding-left: 2.5rem;
+    text-align: right;
+}
+
+/* Campo original: guarda o número cru e é enviado no formulário, mas não aparece. */
+.currency-field .currency-source {
+    display: none !important;
+}

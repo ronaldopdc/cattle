@@ -1067,7 +1067,8 @@ unset($p);
                             </div>
                             <div class="form-group">
                                 <label>Valor Total (R$)</label>
-                                <input type="number" step="0.01" name="total_value" id="total_value" required>
+                                <input type="number" step="0.01" name="total_value" id="total_value" required
+                                    data-currency>
                             </div>
                         </div>
 
@@ -1565,7 +1566,7 @@ unset($p);
                 <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
                     <div class="form-group">
                         <label>Valor Alocado (R$)</label>
-                        <input type="number" step="0.01" name="lots[${lotIndex}][allocated_amount]" class="allocated-input" required placeholder="Calculado automaticamente" value="${data && data.allocated_amount ? parseFloat(data.allocated_amount).toFixed(2) : ''}">
+                        <input type="number" step="0.01" name="lots[${lotIndex}][allocated_amount]" class="allocated-input" required data-currency placeholder="Calculado automaticamente" value="${data && data.allocated_amount ? parseFloat(data.allocated_amount).toFixed(2) : ''}">
                     </div>
                     <div class="form-group">
                         <label>Taxa Mensal (%)</label>
