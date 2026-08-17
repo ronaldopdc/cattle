@@ -370,8 +370,11 @@ foreach ($partnerships as &$p) {
     }
 
     // Calculate Projected Balance. Future liquidations already recorded must affect the projection.
-    if (!empty($liquidations)) {
-        $projectionEndDate = $today;
+    $computeProjectedBalance = function ($asOfDate, $balanceAtDate) use ($p, $lots, $liquidations, $furthestLotRate) {
+        if (empty($liquidations)) {
+            return calculateProjectedBalance($balanceAtDate, $asOfDate, $furthestLotRate, $lots, $liquidations);
+        }
+        $projectionEndDate = $asOfDate;
         foreach ($lots as $lot) {
             if ($lot['slaughter_date'] > $projectionEndDate) {
                 $projectionEndDate = $lot['slaughter_date'];
@@ -383,12 +386,26 @@ foreach ($partnerships as &$p) {
             }
         }
         $projectedState = calculatePartnershipState($p, $lots, $liquidations, $projectionEndDate);
-        $projected_balance_val = $projectedState['current_balance'];
-    } else {
-        $projected_balance_val = calculateProjectedBalance($p['current_balance'], $today, $furthestLotRate, $lots, $liquidations);
-    }
+        return $projectedState['current_balance'];
+    };
 
-    $p['projected_balance'] = $projected_balance_val;
+    $p['projected_balance'] = $computeProjectedBalance($today, $p['current_balance']);
+
+    // Status ("Ativa"/"Encerrada") is deliberately evaluated as of TODAY, never as of
+    // the reference date. The reference date only rewinds the DISPLAYED values; a
+    // partnership that has already been settled must not resurface as active just
+    // because the list was recalculated at a date before its settlement.
+    if ($hasRefDate) {
+        $statusDate = ($latestLiquidationDate && $latestLiquidationDate > $todayStr) ? $latestLiquidationDate : $todayStr;
+        $statusBalance = calculatePartnershipState($p, $lots, $liquidations, $statusDate)['current_balance'];
+        $statusProjected = $computeProjectedBalance($todayStr, $statusBalance);
+    } else {
+        $statusBalance = $p['current_balance'];
+        $statusProjected = $p['projected_balance'];
+    }
+    $p['is_closed'] = ($statusBalance < 0.01 && $statusProjected < 0.01);
+    // Date the partnership was settled (used to explain a rewound, still-positive balance).
+    $p['settlement_date'] = $p['is_closed'] ? ($settlementDisplayDate ?: $latestLiquidationDate) : null;
 
     // "Projected Value" (original target) - displayed as REF only?
     // User wants "Saldo Previsto" to be correct.
@@ -1236,8 +1253,8 @@ unset($p);
                             <?php foreach ($partnerships as $p):
                                 $rowLots = $partnershipLots[$p['id']] ?? [];
                                 $rowLotNumbers = array_map('strval', array_column($rowLots, 'lot_number'));
-                                // Determine status
-                                $isClosed = ($p['current_balance'] < 0.01 && $p['projected_balance'] < 0.01);
+                                // Determine status (already resolved as of today, not the reference date)
+                                $isClosed = !empty($p['is_closed']);
                                 $status = $isClosed ? 'closed' : 'active';
                                 $displayStyle = $isClosed ? 'display: none;' : '';
                                 ?>
@@ -1291,6 +1308,13 @@ unset($p);
                                     </td>
                                     <td data-label="Saldo Atual" style="color: #818cf8; font-weight: 600;">R$
                                         <?= number_format($p['current_balance'], 2, ',', '.') ?>
+                                        <?php if ($isClosed && $p['current_balance'] >= 0.01): ?>
+                                            <span
+                                                style="display: block; color: #10b981; font-size: 0.75rem; font-weight: 500;"
+                                                title="Saldo recalculado na data de referência; a parceria já foi liquidada.">
+                                                Liquidada<?= $p['settlement_date'] ? ' em ' . date('d/m/Y', strtotime($p['settlement_date'])) : '' ?>
+                                            </span>
+                                        <?php endif; ?>
                                     </td>
                                     <td data-label="Saldo Previsto" style="color: #34d399; font-weight: 600;">R$
                                         <?= number_format($p['projected_balance'], 2, ',', '.') ?>
