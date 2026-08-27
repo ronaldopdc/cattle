@@ -41,7 +41,7 @@ O **Cattle Invest** é uma plataforma de gestão de parcerias pecuárias (confin
    - Guardam os parâmetros para a ferramenta de simulação de engorda (custos diários de alimentação por faixa de peso, ganho de peso diário esperado [GPD], fretes, comissão, etc.).
 9. **`users`**: Usuários do sistema. Os papéis são `admin` (acesso total) e `user` (acesso limitado). Usuários não-admin possuem um `partner_id` vinculado para restringir os dados visualizados no dashboard.
 10. **Tabelas de Anexos (`lot_attachments`, `partner_attachments`, `partnership_attachments`)**:
-    - **Importante:** Os arquivos são gravados diretamente no banco de dados em colunas do tipo `LONGBLOB` (`file_data`). **Não há upload físico de arquivos no sistema de arquivos local.** Isso evita problemas de caminhos e permissões de diretórios. Tamanho máximo permitido: 10MB.
+    - **Importante:** Os arquivos são gravados diretamente no banco de dados em colunas do tipo `LONGBLOB` (`file_data`). **Não há upload físico de arquivos no sistema de arquivos local.** Isso evita problemas de caminhos e permissões de diretórios. Tamanho máximo permitido: 60MB.
 
 ---
 

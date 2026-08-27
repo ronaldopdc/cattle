@@ -96,8 +96,8 @@ function validateUploadedFile($file, $label)
     if (!in_array($file['type'], $allowedTypes, true)) {
         throw new Exception("O arquivo '{$label}' deve ser PDF ou imagem.");
     }
-    if ($file['size'] > 10 * 1024 * 1024) {
-        throw new Exception("O arquivo '{$label}' deve ter no máximo 10MB.");
+    if ($file['size'] > 60 * 1024 * 1024) {
+        throw new Exception("O arquivo '{$label}' deve ter no máximo 60MB.");
     }
 }
 
@@ -226,7 +226,7 @@ try {
             
             // Basic validation
             $allowed_types = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];
-            if (in_array($file['type'], $allowed_types) && $file['size'] <= 10 * 1024 * 1024) {
+            if (in_array($file['type'], $allowed_types) && $file['size'] <= 60 * 1024 * 1024) {
                 $content = file_get_contents($file['tmp_name']);
                 $stmtAtt = $pdo->prepare("INSERT INTO partner_attachments (partner_id, filename, file_content, file_type, file_size, description) VALUES (?, ?, ?, ?, ?, ?)");
                 $stmtAtt->execute([

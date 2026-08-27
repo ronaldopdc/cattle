@@ -95,8 +95,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload_attachments_batch') {
                 echo json_encode(['success' => false, 'message' => 'Tipo de arquivo não permitido: ' . $f['name'][$i]]);
                 exit;
             }
-            if ($f['size'][$i] > 10 * 1024 * 1024) {
-                echo json_encode(['success' => false, 'message' => 'Arquivo muito grande (máx 10MB): ' . $f['name'][$i]]);
+            if ($f['size'][$i] > 60 * 1024 * 1024) {
+                echo json_encode(['success' => false, 'message' => 'Arquivo muito grande (máx 60MB): ' . $f['name'][$i]]);
                 exit;
             }
             $files[] = [
@@ -213,9 +213,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload_attachment') {
             exit;
         }
 
-        // Validate file size (max 10MB)
-        if ($file['size'] > 10 * 1024 * 1024) {
-            echo json_encode(['success' => false, 'message' => 'Arquivo muito grande (máx 10MB)']);
+        // Validate file size (max 60MB)
+        if ($file['size'] > 60 * 1024 * 1024) {
+            echo json_encode(['success' => false, 'message' => 'Arquivo muito grande (máx 60MB)']);
             exit;
         }
 

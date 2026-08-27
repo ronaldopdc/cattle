@@ -33,8 +33,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload_partner_attachment') {
             exit;
         }
 
-        if ($file['size'] > 10 * 1024 * 1024) { // 10MB max
-            echo json_encode(['success' => false, 'message' => 'Arquivo muito grande (máximo 10MB)']);
+        if ($file['size'] > 60 * 1024 * 1024) { // 60MB max
+            echo json_encode(['success' => false, 'message' => 'Arquivo muito grande (máximo 60MB)']);
             exit;
         }
 
