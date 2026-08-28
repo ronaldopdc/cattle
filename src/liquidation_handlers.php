@@ -131,6 +131,85 @@ function recalcPartnershipSingleRate($pdo, $partnership, $partnership_id, $allLo
     }
 }
 
+/**
+ * Remaining cattle head per lot of a partnership, in slaughter_date order.
+ *
+ * Mirrors what the partnership list and the calculation memory display: the head a
+ * partnership holds on a lot is proportional to the principal it holds on that lot
+ * (a lot can be split across partnerships), and the head informed on the previous
+ * liquidations is then subtracted.
+ *
+ * @param array  $allLots    Lots of the partnership, including animal_count,
+ *                           protocol_weight, indexed_price and max_advance_percent.
+ * @param array  $liquidations Liquidations already recorded for the partnership.
+ * @param string $targetDate Evaluate liquidations up to this date (inclusive).
+ * @return array Map of lot_id => remaining head (int), ordered by slaughter_date ASC.
+ *               Empty when the partnership tracks no head at all.
+ */
+function remainingHeadByLot($pdo, $partnership, $allLots, $liquidations, $targetDate)
+{
+    // Principal every partnership holds on each lot, so a shared lot splits its head.
+    $lotTotalPrincipal = [];
+    $stmtAlloc = $pdo->query("SELECT pl.lot_id, pl.projected_value, pl.monthly_rate, pl.slaughter_date, p.start_date
+                              FROM partnership_lots pl
+                              JOIN partnerships p ON pl.partnership_id = p.id");
+    foreach ($stmtAlloc as $alloc) {
+        $months = calculateMonthsBetween($alloc['start_date'], $alloc['slaughter_date']);
+        if ($months <= 0) $months = 0.0001;
+        $lid = intval($alloc['lot_id']);
+        $lotTotalPrincipal[$lid] = ($lotTotalPrincipal[$lid] ?? 0)
+            + calculateAllocatedAmount(floatval($alloc['projected_value']), floatval($alloc['monthly_rate']), $months);
+    }
+
+    $headLots = [];
+    $initialHead = 0;
+    foreach ($allLots as $lot) {
+        $lid = intval($lot['lot_id']);
+        $months = calculateMonthsBetween($partnership['start_date'], $lot['slaughter_date']);
+        if ($months <= 0) $months = 0.0001;
+        $allocated = calculateAllocatedAmount(floatval($lot['projected_value']), floatval($lot['monthly_rate']), $months);
+
+        // Same guard as the list: a lot with no advance ceiling carries no head.
+        $weightArrobas = (floatval($lot['protocol_weight']) * intval($lot['animal_count'])) / 30;
+        $maxAdvance = $weightArrobas * floatval($lot['indexed_price']) * (floatval($lot['max_advance_percent']) / 100);
+
+        $allocatedAnimals = 0;
+        if ($maxAdvance > 0) {
+            $totalLotPrincipal = $lotTotalPrincipal[$lid] ?? $allocated;
+            if ($totalLotPrincipal <= 0) $totalLotPrincipal = $allocated;
+            if ($totalLotPrincipal > 0) {
+                $allocatedAnimals = (int) round(intval($lot['animal_count']) * ($allocated / $totalLotPrincipal));
+            }
+        }
+        $initialHead += $allocatedAnimals;
+
+        $headLots[] = [
+            'lot_id' => $lid,
+            'slaughter_date' => $lot['slaughter_date'],
+            'allocated_amount' => $allocated,
+            'allocated_animals' => $allocatedAnimals,
+        ];
+    }
+
+    if ($initialHead <= 0) {
+        return [];
+    }
+
+    $avgPrincipalPerAnimal = floatval($partnership['total_value']) / $initialHead;
+    $headBalances = computeLotHeadBalances($headLots, $liquidations, $targetDate, $avgPrincipalPerAnimal);
+
+    usort($headLots, function ($a, $b) {
+        return strtotime($a['slaughter_date'] ?? '9999-12-31') - strtotime($b['slaughter_date'] ?? '9999-12-31');
+    });
+
+    $remaining = [];
+    foreach ($headLots as $headLot) {
+        $remaining[$headLot['lot_id']] = intval($headBalances[$headLot['lot_id']]['balance_animals'] ?? 0);
+    }
+
+    return $remaining;
+}
+
 // API endpoint for adding liquidation
 if (isset($_GET['action']) && $_GET['action'] === 'add_liquidation') {
     header('Content-Type: application/json');
@@ -205,10 +284,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'add_liquidation') {
         require_once __DIR__ . '/financial_calculations.php';
 
         // Fetch ALL lots for this partnership ordered by slaughter_date ASC
-        $stmtLots = $pdo->prepare("SELECT pl.lot_id, pl.monthly_rate, pl.slaughter_date, pl.projected_value, l.animal_count 
-                                    FROM partnership_lots pl 
+        $stmtLots = $pdo->prepare("SELECT pl.lot_id, pl.monthly_rate, pl.slaughter_date, pl.projected_value,
+                                           l.animal_count, l.protocol_weight, l.indexed_price, l.max_advance_percent
+                                    FROM partnership_lots pl
                                     JOIN lots l ON pl.lot_id = l.id
-                                    WHERE pl.partnership_id = ? 
+                                    WHERE pl.partnership_id = ?
                                     ORDER BY pl.slaughter_date ASC");
         $stmtLots->execute([$partnership_id]);
         $allLots = $stmtLots->fetchAll(PDO::FETCH_ASSOC);
@@ -225,6 +305,57 @@ if (isset($_GET['action']) && $_GET['action'] === 'add_liquidation') {
         // Check if payment covers entire balance (auto-settlement)
         if ($amount_total >= (floatval($state['current_balance']) - 0.01)) {
             $is_settlement = 1;
+        }
+
+        // --- Head count informed as a TOTAL: derive the per-lot split ---
+        // The modal only shows the per-lot inputs when 2+ lots are selected, so a
+        // single-lot (or no-lot) liquidation arrives with just a total. Left alone,
+        // the head would follow the VALUE distribution below, which lands on the lot
+        // that still has value owed -- not necessarily the lot the cattle actually
+        // come from. Once every lot's per-lot value balance is exhausted (it goes to
+        // zero as soon as a liquidation rewrites the lot's projected_value), that is
+        // always the last lot by slaughter date, so the head piled up on a lot with
+        // no cattle left and the partnership head balance stopped moving.
+        // Drive the split by the remaining HEAD instead, nearest slaughter date first.
+        if (!$is_settlement && empty($lot_quantities) && $quantity !== null && $quantity > 0) {
+            $remainingHead = remainingHeadByLot($pdo, $partnership, $allLots, $existingLiquidations, $date);
+
+            // Lots the user selected are served first; the rest absorb the overflow,
+            // mirroring the overflow rule already applied to the value.
+            $orderedLotIds = [];
+            foreach (array_keys($remainingHead) as $rhLotId) {
+                if (in_array($rhLotId, $lot_ids, true)) {
+                    $orderedLotIds[] = $rhLotId;
+                }
+            }
+            foreach (array_keys($remainingHead) as $rhLotId) {
+                if (!in_array($rhLotId, $orderedLotIds, true)) {
+                    $orderedLotIds[] = $rhLotId;
+                }
+            }
+
+            $pendingHead = $quantity;
+            $derivedQuantities = [];
+            foreach ($orderedLotIds as $rhLotId) {
+                if ($pendingHead <= 0) break;
+                $freeHead = $remainingHead[$rhLotId];
+                if ($freeHead <= 0) continue;
+                $takeHead = min($freeHead, $pendingHead);
+                $derivedQuantities[$rhLotId] = $takeHead;
+                $pendingHead -= $takeHead;
+            }
+
+            // More head informed than the partnership still has: the surplus stays on
+            // the last lot served so it is recorded instead of silently dropped.
+            if ($pendingHead > 0 && !empty($derivedQuantities)) {
+                $derivedIds = array_keys($derivedQuantities);
+                $derivedQuantities[end($derivedIds)] += $pendingHead;
+            }
+
+            if (!empty($derivedQuantities)) {
+                $lot_quantities = $derivedQuantities;
+                $quantity = array_sum($lot_quantities);
+            }
         }
 
         // --- Dedicated path: explicit head count PER LOT ---
