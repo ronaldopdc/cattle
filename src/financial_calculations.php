@@ -442,16 +442,46 @@ function computeLotHeadBalances($lots, $liquidations, $targetDate, $avgPrincipal
     }
 
     $result = [];
+    $surplusHead = 0;
     foreach ($lots as $lot) {
         $lid = $lot['lot_id'];
         $allocatedAnimals = intval($lot['allocated_animals'] ?? 0);
         $slaughtered = (int) round($slaughteredExplicit[$lid] + $slaughteredEstimated[$lid]);
         if ($slaughtered < 0) $slaughtered = 0;
-        if ($slaughtered > $allocatedAnimals) $slaughtered = $allocatedAnimals;
+        if ($slaughtered > $allocatedAnimals) {
+            // Head informed beyond this lot's own size must NOT be discarded. A
+            // liquidation is written to the lot that still holds VALUE, which is
+            // not always the lot that still holds HEAD, so the excess belongs to
+            // another lot of the same partnership. Keep it to reallocate below.
+            $surplusHead += $slaughtered - $allocatedAnimals;
+            $slaughtered = $allocatedAnimals;
+        }
         $result[$lid] = [
             'balance_animals' => max(0, $allocatedAnimals - $slaughtered),
             'slaughtered' => $slaughtered
         ];
+    }
+
+    // Reallocate the excess head to the lots that still have head left (nearest
+    // slaughter date first), mirroring the value carry-over of computeLotBalances().
+    // Without this the partnership head balance stays frozen whenever a liquidation
+    // lands on an already fully slaughtered lot, and the list disagrees with the
+    // calculation memory (which never clipped per lot).
+    if ($surplusHead > 0) {
+        $orderedLots = $lots;
+        usort($orderedLots, function ($a, $b) {
+            return strtotime($a['slaughter_date'] ?? '9999-12-31') - strtotime($b['slaughter_date'] ?? '9999-12-31');
+        });
+        foreach ($orderedLots as $lot) {
+            if ($surplusHead <= 0) break;
+            $lid = $lot['lot_id'];
+            $free = $result[$lid]['balance_animals'];
+            if ($free <= 0) continue;
+            $take = min($free, $surplusHead);
+            $result[$lid]['balance_animals'] -= $take;
+            $result[$lid]['slaughtered'] += $take;
+            $surplusHead -= $take;
+        }
     }
 
     return $result;
