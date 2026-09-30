@@ -1,6 +1,6 @@
 <!-- Attachments Modal -->
 <div id="attachmentsModal"
-    style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7);">
+    style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow-y: auto; background-color: rgba(0,0,0,0.7);">
     <div
         style="position: relative; margin: 5% auto; padding: 2rem; width: 600px; max-width: 90%; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
         <span onclick="closeAttachmentsModal()"
@@ -35,7 +35,7 @@
             </form>
 
             <!-- Resultado da análise/validação (upload múltiplo) -->
-            <div id="analysis-result" style="display: none; margin-top: 1rem;"></div>
+            <div id="analysis-result" style="display: none; margin-top: 1rem; max-height: 40vh; overflow-y: auto;"></div>
         </div>
 
         <!-- Attachments List -->
