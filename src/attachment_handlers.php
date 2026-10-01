@@ -48,10 +48,22 @@ function loadPartnershipForValidation($pdo, $partnership_id)
     ];
 }
 
+// Garante a coluna onde fica gravada a análise de um upload forçado. Idempotente.
+// Evita a necessidade de rodar a migração manualmente.
+function ensurePartnershipAttachmentNotesColumn($pdo)
+{
+    $stmt = $pdo->query("SHOW COLUMNS FROM partnership_attachments LIKE 'validation_notes'");
+    if (!$stmt->fetch()) {
+        $pdo->exec("ALTER TABLE partnership_attachments ADD COLUMN validation_notes TEXT NULL AFTER description");
+    }
+}
+
 // API endpoint: upload de MÚLTIPLOS arquivos com análise e validação automática.
 // Classifica cada arquivo (NF / GTA / Pesagem), valida contra a parceria e,
 // se todas as validações passarem, grava os anexos com a descrição automática.
-// Em caso de qualquer inconsistência, NADA é gravado (bloqueio atômico).
+// Em caso de qualquer inconsistência, NADA é gravado (bloqueio atômico), a menos
+// que o usuário force o envio (force=1): aí os anexos são gravados junto com as
+// inconsistências encontradas (validation_notes).
 if (isset($_GET['action']) && $_GET['action'] === 'upload_attachments_batch') {
     header('Content-Type: application/json');
 
@@ -120,8 +132,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload_attachments_batch') {
 
         // Valida o conjunto contra a parceria
         $result = validatePartnershipDocuments($partnership, $analyzed);
+        $force = !empty($_POST['force']);
 
-        if (!$result['ok']) {
+        if (!$result['ok'] && !$force) {
             echo json_encode([
                 'success' => false,
                 'blocked' => true,
@@ -133,11 +146,23 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload_attachments_batch') {
             exit;
         }
 
-        // Validações OK -> grava apenas os documentos RECONHECIDOS (NF/GTA/pesagem).
+        // Upload forçado com inconsistências: a análise fica gravada em cada anexo do lote.
+        $notes = null;
+        if (!$result['ok']) {
+            $notes = 'Anexado com inconsistências na validação (envio forçado por '
+                . ($_SESSION['username'] ?? 'usuário desconhecido') . ' em ' . date('d/m/Y H:i') . "):\n- "
+                . implode("\n- ", $result['errors']);
+            ensurePartnershipAttachmentNotesColumn($pdo);
+        }
+
+        // Grava apenas os documentos RECONHECIDOS (NF/GTA/pesagem).
         // Arquivos não reconhecidos (comprovantes, contratos, imagens) são ignorados.
         $pdo->beginTransaction();
-        $sql = "INSERT INTO partnership_attachments (partnership_id, filename, file_data, file_type, file_size, description)
-                VALUES (?, ?, ?, ?, ?, ?)";
+        $sql = $notes === null
+            ? "INSERT INTO partnership_attachments (partnership_id, filename, file_data, file_type, file_size, description)
+               VALUES (?, ?, ?, ?, ?, ?)"
+            : "INSERT INTO partnership_attachments (partnership_id, filename, file_data, file_type, file_size, description, validation_notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?)";
         $stmt = $pdo->prepare($sql);
         $saved = 0;
         foreach ($files as $idx => $file) {
@@ -145,25 +170,32 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload_attachments_batch') {
             if ($doc['tipo'] === DOC_DESCONHECIDO || empty($doc['readable'])) {
                 continue; // ignora não reconhecidos
             }
-            $stmt->execute([
+            $params = [
                 $partnership_id,
                 $file['name'],
                 $file['data'],
                 $file['type'],
                 $file['size'],
                 descricaoParaTipo($doc),
-            ]);
+            ];
+            if ($notes !== null) {
+                $params[] = $notes;
+            }
+            $stmt->execute($params);
             $saved++;
         }
         $pdo->commit();
 
-        $msg = "$saved anexo(s) enviado(s) e validado(s) com sucesso.";
+        $msg = $notes === null
+            ? "$saved anexo(s) enviado(s) e validado(s) com sucesso."
+            : "$saved anexo(s) enviado(s) com inconsistências na validação (envio forçado). A análise foi gravada nos anexos.";
         if (!empty($result['ignored'])) {
             $msg .= ' ' . count($result['ignored']) . ' arquivo(s) ignorado(s) (não reconhecidos como NF/GTA/pesagem).';
         }
         echo json_encode([
             'success' => true,
             'message' => $msg,
+            'errors' => $result['errors'],
             'ignored' => $result['ignored'],
             'docs' => $result['docs'],
         ]);
@@ -320,8 +352,9 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_attachments') {
     }
 
     try {
-        $sql = "SELECT id, filename, file_type, file_size, description, uploaded_at 
-                FROM partnership_attachments 
+        ensurePartnershipAttachmentNotesColumn($pdo);
+        $sql = "SELECT id, filename, file_type, file_size, description, validation_notes, uploaded_at
+                FROM partnership_attachments
                 WHERE partnership_id = ? 
                 ORDER BY uploaded_at DESC";
         $stmt = $pdo->prepare($sql);

@@ -96,7 +96,7 @@
     };
 
     // Renderiza o resultado da análise (documentos detectados + erros de validação)
-    function renderAnalysis(docs, errors, ignored) {
+    function renderAnalysis(docs, errors, ignored, blocked) {
         const box = document.getElementById('analysis-result');
         let html = '';
 
@@ -123,10 +123,19 @@
 
         if (Array.isArray(errors) && errors.length) {
             html += '<div style="background: rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); padding:1rem; border-radius:6px;">';
-            html += '<div style="color:#ef4444; font-weight:600; margin-bottom:0.5rem;"><i class="fas fa-triangle-exclamation"></i> Upload bloqueado — corrija as inconsistências:</div>';
+            html += '<div style="color:#ef4444; font-weight:600; margin-bottom:0.5rem;"><i class="fas fa-triangle-exclamation"></i> '
+                + (blocked ? 'Upload bloqueado — corrija as inconsistências:' : 'Anexado com inconsistências (análise gravada nos anexos):')
+                + '</div>';
             html += '<ul style="margin:0; padding-left:1.25rem; color:#fecaca; font-size:0.85rem;">';
             errors.forEach(e => { html += `<li style="margin-bottom:0.25rem;">${e}</li>`; });
-            html += '</ul></div>';
+            html += '</ul>';
+            if (blocked) {
+                html += `<button type="button" id="attachment-force-btn" onclick="forceUploadMultipleFiles()" class="btn"
+                    style="width:100%; margin-top:0.75rem; background: rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b;">
+                    <i class="fas fa-triangle-exclamation"></i> Forçar Anexação (gravar com as inconsistências)
+                </button>`;
+            }
+            html += '</div>';
         }
 
         box.innerHTML = html;
@@ -168,6 +177,10 @@
                                 <div style="color: #e2e8f0; font-weight: 500;">${att.filename}</div>
                                 <div style="color: #94a3b8; font-size: 0.875rem;">${fileSize} • ${uploadDate}</div>
                                 ${att.description ? `<div style="color: #cbd5e1; font-size: 0.875rem; margin-top: 0.25rem;">${att.description}</div>` : ''}
+                                ${att.validation_notes ? `<details style="margin-top: 0.35rem;">
+                                    <summary style="color: #f59e0b; font-size: 0.8rem; cursor: pointer;"><i class="fas fa-triangle-exclamation"></i> Anexado com inconsistências na validação</summary>
+                                    <div style="color: #fcd34d; font-size: 0.8rem; margin-top: 0.25rem; white-space: pre-line;">${escapeHtml(att.validation_notes)}</div>
+                                </details>` : ''}
                             </div>
                         </div>
                     </div>
@@ -189,6 +202,12 @@
             console.error('Error loading attachments:', error);
             document.getElementById('attachments-list').innerHTML = '<p style="color: #ef4444;">Erro ao carregar anexos</p>';
         }
+    }
+
+    function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
     }
 
     function getFileIcon(fileType) {
@@ -272,7 +291,25 @@
         }
     }
 
-    async function uploadMultipleFiles(files) {
+    // Reenvia os mesmos arquivos ignorando o bloqueio da validação; o servidor
+    // grava as inconsistências encontradas junto com os anexos.
+    async function forceUploadMultipleFiles() {
+        const files = document.getElementById('attachment-file').files;
+        if (files.length < 2) {
+            return;
+        }
+        if (!confirm('Os anexos serão gravados mesmo com as inconsistências apontadas, e a análise ficará registrada neles. Deseja continuar?')) {
+            return;
+        }
+        const forceBtn = document.getElementById('attachment-force-btn');
+        if (forceBtn) {
+            forceBtn.disabled = true;
+            forceBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+        }
+        await uploadMultipleFiles(files, true);
+    }
+
+    async function uploadMultipleFiles(files, force = false) {
         const btn = document.getElementById('attachment-submit-btn');
         const originalHtml = btn.innerHTML;
         btn.disabled = true;
@@ -280,6 +317,9 @@
 
         const formData = new FormData();
         formData.append('partnership_id', currentPartnershipIdForModal);
+        if (force) {
+            formData.append('force', '1');
+        }
         for (let i = 0; i < files.length; i++) {
             formData.append('files[]', files[i]);
         }
@@ -291,7 +331,7 @@
             });
             const result = await response.json();
 
-            renderAnalysis(result.docs || [], result.errors || [], result.ignored || []);
+            renderAnalysis(result.docs || [], result.errors || [], result.ignored || [], !!result.blocked);
 
             if (result.success) {
                 document.getElementById('uploadForm').reset();
